@@ -1,1514 +1,1374 @@
+
+Make a web app using html js and css which you can upload assignments via webcam and google documents, and it converts them into a downloadable pdf, naming google doc assignments based on the document title by default, or human input, and photos by only human input. It should be called "Bundle maker", and should have an input for the users name.
+
+Mar 13
+
+Viewed 2 files
+Viewed 2 files
+Now I have a clear picture. This is a self-contained HTML/JS/CSS app that needs to:
+
+Capture photos via webcam
+Accept Google Doc links (via the Google Docs export API)
+Bundle everything into a downloadable PDF using jsPDF in the browser
+Let me build this.
+
+
+Created a file, read a file
+Created a file, read a file
+Here is Bundle Maker. A few things to know before using it:
+
+Webcam capture — Click "Start Camera", grant permission, enter an assignment name (required), then hit Capture. The flash effect confirms the shot.
+
+Google Documents — Paste a public Google Docs URL. The app fetches the document title automatically from the exported text and uses it as the assignment name. You can override this with the custom name field. The doc must be set to "Anyone with the link can view" in Google Drive for the export to work.
+
+Queue — Items appear on the right. You can drag to reorder them, rename any item inline, or remove it. All of this controls the final PDF order.
+
+PDF output — Clicking "Generate PDF Bundle" produces a multi-page PDF with a styled cover page (including your name, date, and a table of contents), followed by each assignment with a labeled header strip. Photos are embedded as full-page images; Google Docs are rendered page-by-page.
+
+One browser limitation to be aware of: fetching Google Docs requires the document to be publicly shared, because browsers block cross-origin requests to private files. If a document fails to load, the most likely cause is the sharing permission.
+
+Bundle maker
+Code · HTML 
+Also add an "upload file option"
+
+Mar 13
+
+Edited 2 files, viewed a file
+Edited 2 files, viewed a file
+Now add the JS logic for file uploads, and update the TOC type label and PDF rendering to handle uploaded files:
+
+
+Add upload file JS logic and update PDF generation to handle uploaded files
+Add upload file JS logic and update PDF generation to handle uploaded files
+Now update the TOC type label and PDF item rendering to handle uploaded-pdf:
+
+
+Edited 3 files
+Edited 3 files
+Now update the queue item type label to show "Uploaded PDF" for that type:
+
+
+Update queue item type label for uploaded-pdf
+Update queue item type label for uploaded-pdf
+Also update the thumb for uploaded PDFs to show "PDF" label in the accent color, same as Google Docs:
+
+
+Update thumb rendering for uploaded-pdf type
+Update thumb rendering for uploaded-pdf type
+Also update the addGdocPages header label to reflect uploaded PDFs correctly:
+
+
+Edited a file, read a file
+Edited a file, read a file
+Done. The upload section is now in the sidebar below Google Docs. Here's how it works:
+
+Supported formats — PDF, JPG, PNG, GIF, and WEBP. You can select multiple files at once or drag and drop them onto the zone.
+
+PDFs — Added straight to the bundle using the filename (minus extension) as the default name, which you can rename inline in the queue like any other item.
+
+Images — You're prompted to enter an assignment name (required, same rule as webcam captures). If you upload multiple images at once, the name you enter is used as a base and the individual filenames are appended to distinguish them.
+
+Each uploaded file shows a "PDF" or "IMG" badge in the queue and is labeled "Uploaded PDF" or "Photo capture" as appropriate in the final bundle.
+
+Bundle maker
+Code · HTML 
+now can you make it so multiple photos and file uploads can compose 1 assignment? like for example, if a paper assignment is 7 pages long, it should be entered all under 1 assignment? Also for the file upload, dropping multiple files into the upload box should automatically add them to 1 assignment
+
+8:19 PM
+
+Read the full current file
+Read the full current file
+Good. Now I have a full picture. The core change needed is significant — the data model needs to shift from each item being a single page/file to each item being an assignment that contains an ordered array of pages (images or PDFs). I'll rewrite the file cleanly with this new model.
+
+Key design decisions:
+
+Each queue item = one assignment, with a name and an array of pages ({ kind: 'image'|'pdf', data })
+Webcam: each capture goes into a pending session for the current assignment name, with a live strip showing captured pages. "Add to Bundle" commits it
+File upload: dropping multiple files auto-groups them into one assignment
+Queue item shows page count and thumbnail strip
+PDF generation: one header per assignment, all pages flow consecutively
+
+Created 2 files, ran a command, read a file
+Created 2 files, ran a command, read a file
+Here's how the new model works:
+
+Webcam — Each "Capture Page" click adds a page to a pending tray. You can see the thumbnails accumulate, remove any individual page with the x button, and once you've captured all the pages of that assignment, give it a name and hit "Add to Bundle." The tray resets and you can start on the next assignment.
+
+File upload — Dropping or selecting multiple files stages them all into the same pending tray as one assignment. You can keep dropping more files into the zone to add more pages to the same tray, remove individual pages before committing, then name the whole thing and add it. A 7-page scanned paper would be 7 image files dropped at once — they all go in as one assignment.
+
+PDF files — When a multi-page PDF is uploaded, the generator automatically detects the page count and expands each page individually in the output, all under the one assignment header. So a 7-page PDF upload renders as 7 consecutive pages in the bundle with only one header for that assignment.
+
+Queue — Each card shows a thumbnail strip of its pages (up to 7, then "+N more") and the page count in the metadata line.
+
+Bundle maker
+Code · HTML 
+
+
+Want to be notified when Claude responds?
+
+
+
+Claude is AI and can make mistakes. Please double-check responses.
+Bundle maker · HTML
+Copy
+
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Bundle Builder</title>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Code+Pro:wght@300;400;500&display=swap"
-      rel="stylesheet"
-    />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <style>
-      *,
-      *::before,
-      *::after {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-      }
-
-      :root {
-        --bg: #0d0d0d;
-        --surface: #141414;
-        --surface2: #1c1c1c;
-        --border: #2a2a2a;
-        --accent: #c8a96e;
-        --accent-dim: #8a7048;
-        --text: #e8e0d0;
-        --text-dim: #7a7060;
-        --red: #c85a4a;
-        --green: #5a9c6e;
-        --radius: 2px;
-        --mono: "Source Code Pro", monospace;
-        --serif: "Playfair Display", Georgia, serif;
-      }
-
-      body {
-        background: var(--bg);
-        color: var(--text);
-        font-family: var(--mono);
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-      }
-
-      /* --- HEADER --- */
-      header {
-        border-bottom: 1px solid var(--border);
-        padding: 2rem 3rem;
-        display: flex;
-        align-items: baseline;
-        gap: 1.5rem;
-      }
-
-      header h1 {
-        font-family: var(--serif);
-        font-size: 2.4rem;
-        font-weight: 900;
-        letter-spacing: -0.02em;
-        color: var(--accent);
-      }
-
-      header span {
-        font-size: 0.7rem;
-        color: var(--text-dim);
-        letter-spacing: 0.15em;
-        text-transform: uppercase;
-      }
-
-      /* --- LAYOUT --- */
-      main {
-        display: grid;
-        grid-template-columns: 340px 1fr;
-        flex: 1;
-        overflow: hidden;
-      }
-
-      aside {
-        border-right: 1px solid var(--border);
-        padding: 2rem;
-        display: flex;
-        flex-direction: column;
-        gap: 2rem;
-        overflow-y: auto;
-      }
-
-      .panel {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
-
-      /* --- SECTION LABELS --- */
-      .section-label {
-        font-size: 0.65rem;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-        margin-bottom: 0.75rem;
-      }
-
-      /* --- INPUTS --- */
-      .field {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-      }
-
-      .field label {
-        font-size: 0.68rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-      }
-
-      input[type="text"],
-      input[type="url"] {
-        background: var(--surface2);
-        border: 1px solid var(--border);
-        color: var(--text);
-        font-family: var(--mono);
-        font-size: 0.85rem;
-        padding: 0.6rem 0.8rem;
-        border-radius: var(--radius);
-        outline: none;
-        transition: border-color 0.15s;
-        width: 100%;
-      }
-
-      input[type="text"]:focus,
-      input[type="url"]:focus {
-        border-color: var(--accent);
-      }
-
-      /* --- BUTTONS --- */
-      button {
-        font-family: var(--mono);
-        font-size: 0.75rem;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        cursor: pointer;
-        border: none;
-        border-radius: var(--radius);
-        transition: all 0.15s;
-      }
-
-      .btn-primary {
-        background: var(--accent);
-        color: #0d0d0d;
-        padding: 0.7rem 1.2rem;
-        font-weight: 500;
-      }
-
-      .btn-primary:hover {
-        background: #d4b87a;
-      }
-      .btn-primary:active {
-        transform: scale(0.98);
-      }
-
-      .btn-ghost {
-        background: transparent;
-        color: var(--text-dim);
-        border: 1px solid var(--border);
-        padding: 0.5rem 0.9rem;
-      }
-
-      .btn-ghost:hover {
-        border-color: var(--accent-dim);
-        color: var(--accent);
-      }
-
-      .btn-danger {
-        background: transparent;
-        color: var(--red);
-        border: 1px solid transparent;
-        padding: 0.3rem 0.5rem;
-        font-size: 0.65rem;
-      }
-
-      .btn-danger:hover {
-        border-color: var(--red);
-      }
-
-      /* --- WEBCAM SECTION --- */
-      .webcam-container {
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-      }
-
-      #video-wrapper {
-        position: relative;
-        background: var(--surface2);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        overflow: hidden;
-        aspect-ratio: 4/3;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      #video-wrapper video {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: none;
-      }
-
-      #video-wrapper video.active {
-        display: block;
-      }
-
-      .video-placeholder {
-        text-align: center;
-        color: var(--text-dim);
-        font-size: 0.75rem;
-        line-height: 1.8;
-      }
-
-      .webcam-controls {
-        display: flex;
-        gap: 0.5rem;
-      }
-
-      .webcam-controls button {
-        flex: 1;
-      }
-
-      /* --- GOOGLE DOC SECTION --- */
-      .gdoc-row {
-        display: flex;
-        gap: 0.5rem;
-        align-items: flex-end;
-      }
-
-      .gdoc-row .field {
-        flex: 1;
-      }
-
-      /* --- QUEUE (right panel) --- */
-      .panel-header {
-        padding: 1.5rem 2rem 1rem;
-        border-bottom: 1px solid var(--border);
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 1rem;
-      }
-
-      .panel-header h2 {
-        font-family: var(--serif);
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: var(--text);
-      }
-
-      .queue-count {
-        font-size: 0.68rem;
-        color: var(--text-dim);
-        letter-spacing: 0.1em;
-      }
-
-      .queue-list {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1rem 2rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-      }
-
-      .queue-empty {
-        color: var(--text-dim);
-        font-size: 0.8rem;
-        text-align: center;
-        margin-top: 3rem;
-        line-height: 2;
-      }
-
-      .queue-item {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 0.8rem 1rem;
-        display: flex;
-        align-items: center;
-        gap: 0.8rem;
-        animation: slideIn 0.2s ease;
-      }
-
-      @keyframes slideIn {
-        from {
-          opacity: 0;
-          transform: translateY(-6px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      .item-thumb {
-        width: 48px;
-        height: 48px;
-        border-radius: var(--radius);
-        object-fit: cover;
-        border: 1px solid var(--border);
-        flex-shrink: 0;
-        background: var(--surface2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.65rem;
-        color: var(--text-dim);
-        letter-spacing: 0.05em;
-      }
-
-      .item-thumb img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        border-radius: var(--radius);
-      }
-
-      .item-info {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .item-name {
-        font-size: 0.8rem;
-        color: var(--text);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-bottom: 0.2rem;
-      }
-
-      .item-name input {
-        background: transparent;
-        border: none;
-        border-bottom: 1px solid var(--border);
-        color: var(--text);
-        font-family: var(--mono);
-        font-size: 0.8rem;
-        padding: 0.1rem 0;
-        width: 100%;
-        outline: none;
-      }
-
-      .item-name input:focus {
-        border-bottom-color: var(--accent);
-      }
-
-      .item-type {
-        font-size: 0.6rem;
-        color: var(--text-dim);
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-
-      .item-handle {
-        color: var(--text-dim);
-        cursor: grab;
-        font-size: 0.9rem;
-        padding: 0 0.2rem;
-        user-select: none;
-      }
-
-      .item-handle:active {
-        cursor: grabbing;
-      }
-
-      /* --- FOOTER / GENERATE --- */
-      .panel-footer {
-        padding: 1.25rem 2rem;
-        border-top: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-      }
-
-      .panel-footer .btn-primary {
-        padding: 0.75rem 2rem;
-        font-size: 0.78rem;
-      }
-
-      #status-msg {
-        font-size: 0.75rem;
-        color: var(--text-dim);
-        flex: 1;
-      }
-
-      #status-msg.success {
-        color: var(--green);
-      }
-      #status-msg.error {
-        color: var(--red);
-      }
-
-      /* --- DIVIDER --- */
-      .divider {
-        height: 1px;
-        background: var(--border);
-      }
-
-      /* --- PROGRESS --- */
-      #progress-bar-wrap {
-        display: none;
-        height: 2px;
-        background: var(--surface2);
-        border-radius: 1px;
-        overflow: hidden;
-        margin-top: 0.4rem;
-      }
-
-      #progress-bar-wrap.active {
-        display: block;
-      }
-
-      #progress-bar {
-        height: 100%;
-        background: var(--accent);
-        width: 0%;
-        transition: width 0.3s ease;
-      }
-
-      /* --- FILE UPLOAD --- */
-      .upload-zone {
-        border: 1px dashed var(--border);
-        border-radius: var(--radius);
-        padding: 1.4rem 1rem;
-        text-align: center;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-        position: relative;
-        background: var(--surface2);
-      }
-
-      .upload-zone:hover,
-      .upload-zone.drag-active {
-        border-color: var(--accent);
-        background: #1a1710;
-      }
-
-      .upload-zone input[type="file"] {
-        position: absolute;
-        inset: 0;
-        opacity: 0;
-        cursor: pointer;
-        width: 100%;
-        height: 100%;
-      }
-
-      .upload-zone-label {
-        font-size: 0.75rem;
-        color: var(--text-dim);
-        line-height: 1.9;
-        pointer-events: none;
-      }
-
-      .upload-zone-label strong {
-        color: var(--accent);
-        font-weight: 500;
-      }
-
-      .upload-zone-types {
-        font-size: 0.6rem;
-        letter-spacing: 0.1em;
-        color: var(--text-dim);
-        margin-top: 0.3rem;
-        pointer-events: none;
-      }
-
-      /* --- DRAG OVER HIGHLIGHT --- */
-      .queue-item.drag-over {
-        border-color: var(--accent);
-        background: #1e1b14;
-      }
-
-      /* Loading overlay */
-      #loading-overlay {
-        display: none;
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.7);
-        z-index: 100;
-        align-items: center;
-        justify-content: center;
-        flex-direction: column;
-        gap: 1rem;
-      }
-
-      #loading-overlay.active {
-        display: flex;
-      }
-
-      .spinner {
-        width: 32px;
-        height: 32px;
-        border: 2px solid var(--border);
-        border-top-color: var(--accent);
-        border-radius: 50%;
-        animation: spin 0.7s linear infinite;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .loading-text {
-        font-size: 0.8rem;
-        color: var(--accent);
-        letter-spacing: 0.15em;
-        text-transform: uppercase;
-      }
-
-      /* --- CAPTURE FLASH --- */
-      .flash {
-        position: absolute;
-        inset: 0;
-        background: white;
-        opacity: 0;
-        pointer-events: none;
-        animation: flash 0.3s ease;
-      }
-
-      @keyframes flash {
-        0% {
-          opacity: 0.9;
-        }
-        100% {
-          opacity: 0;
-        }
-      }
-
-      canvas {
-        display: none;
-      }
-
-      /* --- SCROLLBAR --- */
-      ::-webkit-scrollbar {
-        width: 4px;
-      }
-      ::-webkit-scrollbar-track {
-        background: var(--surface);
-      }
-      ::-webkit-scrollbar-thumb {
-        background: var(--border);
-        border-radius: 2px;
-      }
-
-      /* --- NOTIFICATION --- */
-      #notif {
-        position: fixed;
-        bottom: 2rem;
-        right: 2rem;
-        background: var(--surface2);
-        border: 1px solid var(--accent);
-        color: var(--accent);
-        font-size: 0.75rem;
-        letter-spacing: 0.08em;
-        padding: 0.7rem 1.2rem;
-        border-radius: var(--radius);
-        opacity: 0;
-        transform: translateY(8px);
-        transition: all 0.2s ease;
-        pointer-events: none;
-        z-index: 200;
-      }
-
-      #notif.show {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <h1>Bundle Builder</h1>
-      <span>Assignment PDF Bundler</span>
-    </header>
-
-    <main>
-      <!-- LEFT SIDEBAR -->
-      <aside>
-        <!-- Student Name -->
-        <div>
-          <div class="section-label">Student</div>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bundle Maker</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Code+Pro:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+:root {
+  --bg: #0d0d0d;
+  --surface: #141414;
+  --surface2: #1c1c1c;
+  --surface3: #202020;
+  --border: #2a2a2a;
+  --accent: #c8a96e;
+  --accent-dim: #8a7048;
+  --text: #e8e0d0;
+  --text-dim: #7a7060;
+  --red: #c85a4a;
+  --green: #5a9c6e;
+  --radius: 2px;
+  --mono: 'Source Code Pro', monospace;
+  --serif: 'Playfair Display', Georgia, serif;
+}
+ 
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+ 
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 1.6rem 2.5rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  flex-shrink: 0;
+}
+header h1 {
+  font-family: var(--serif);
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+header span {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+ 
+main {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+ 
+aside {
+  border-right: 1px solid var(--border);
+  padding: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  overflow-y: auto;
+}
+ 
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+ 
+.section-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.65rem;
+}
+ 
+.field { display: flex; flex-direction: column; gap: 0.35rem; }
+.field label {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+input[type="text"], input[type="url"] {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.83rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+input[type="text"]:focus, input[type="url"]:focus { border-color: var(--accent); }
+ 
+button {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  transition: all 0.15s;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #0d0d0d;
+  padding: 0.65rem 1.1rem;
+  font-weight: 500;
+}
+.btn-primary:hover { background: #d4b87a; }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.85rem;
+}
+.btn-ghost:hover { border-color: var(--accent-dim); color: var(--accent); }
+.btn-danger {
+  background: transparent;
+  color: var(--red);
+  border: 1px solid transparent;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.62rem;
+}
+.btn-danger:hover { border-color: var(--red); }
+.btn-sm { font-size: 0.65rem; padding: 0.35rem 0.65rem; }
+ 
+.divider { height: 1px; background: var(--border); flex-shrink: 0; }
+ 
+/* WEBCAM */
+.webcam-container { display: flex; flex-direction: column; gap: 0.55rem; }
+#video-wrapper {
+  position: relative;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  aspect-ratio: 4/3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#video-wrapper video { width: 100%; height: 100%; object-fit: cover; display: none; }
+#video-wrapper video.active { display: block; }
+.video-placeholder { text-align: center; color: var(--text-dim); font-size: 0.72rem; line-height: 1.9; }
+.webcam-controls { display: flex; gap: 0.45rem; }
+.webcam-controls button { flex: 1; }
+ 
+/* PENDING SECTION */
+.pending-section {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.pending-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pending-title {
+  font-size: 0.62rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.pending-count { font-size: 0.62rem; color: var(--accent); }
+.pending-actions { display: flex; gap: 0.4rem; align-items: center; }
+ 
+/* PAGE THUMBNAILS */
+.pages-strip {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.page-thumb-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.page-thumb-wrap img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: block;
+}
+.page-thumb-wrap .pdf-thumb {
+  width: 44px;
+  height: 44px;
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+.remove-page {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  background: var(--red);
+  color: white;
+  border-radius: 50%;
+  font-size: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: sans-serif;
+}
+.remove-page:hover { background: #e06050; }
+ 
+/* UPLOAD ZONE */
+.upload-zone {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1.3rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+  background: var(--surface2);
+}
+.upload-zone:hover, .upload-zone.drag-active {
+  border-color: var(--accent);
+  background: #1a1710;
+}
+.upload-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+.upload-zone-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.9;
+  pointer-events: none;
+}
+.upload-zone-label strong { color: var(--accent); font-weight: 500; }
+.upload-zone-types {
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+  pointer-events: none;
+}
+ 
+/* QUEUE PANEL */
+.panel-header {
+  padding: 1.3rem 2rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+.panel-header h2 {
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.queue-count { font-size: 0.65rem; color: var(--text-dim); letter-spacing: 0.1em; }
+ 
+.queue-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 0;
+}
+.queue-empty {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  text-align: center;
+  margin-top: 3rem;
+  line-height: 2.2;
+}
+ 
+/* QUEUE ITEM */
+.queue-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: slideIn 0.2s ease;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.queue-item.drag-over { border-color: var(--accent); background: #1a1810; }
+ 
+.qi-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+.qi-handle {
+  color: var(--text-dim);
+  cursor: grab;
+  font-size: 0.85rem;
+  user-select: none;
+  flex-shrink: 0;
+}
+.qi-handle:active { cursor: grabbing; }
+.qi-info { flex: 1; min-width: 0; }
+.qi-name-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  padding: 0.1rem 0;
+  width: 100%;
+  outline: none;
+}
+.qi-name-input:focus { border-bottom-color: var(--accent); }
+.qi-meta {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+}
+.qi-pages {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0 1rem 0.75rem 2.4rem;
+  flex-wrap: wrap;
+}
+.qi-page-thumb {
+  width: 38px;
+  height: 38px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-shrink: 0;
+}
+.qi-page-pdf {
+  width: 38px;
+  height: 38px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.52rem;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+.qi-more {
+  width: 38px;
+  height: 38px;
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+ 
+/* FOOTER */
+.panel-footer {
+  padding: 1.1rem 2rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+.panel-footer .btn-primary { padding: 0.72rem 2rem; font-size: 0.76rem; }
+#status-msg { font-size: 0.72rem; color: var(--text-dim); flex: 1; }
+#status-msg.success { color: var(--green); }
+#status-msg.error   { color: var(--red); }
+ 
+/* LOADING */
+#loading-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1rem;
+}
+#loading-overlay.active { display: flex; }
+.spinner {
+  width: 30px; height: 30px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 0.75rem; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; }
+ 
+.flash {
+  position: absolute; inset: 0;
+  background: white; opacity: 0;
+  pointer-events: none;
+  animation: flash 0.3s ease;
+}
+@keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+canvas { display: none; }
+ 
+#notif {
+  position: fixed;
+  bottom: 1.8rem; right: 1.8rem;
+  background: var(--surface2);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  padding: 0.65rem 1.1rem;
+  border-radius: var(--radius);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 200;
+}
+#notif.show { opacity: 1; transform: translateY(0); }
+ 
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+ 
+<header>
+  <h1>Bundle Maker</h1>
+  <span>Assignment PDF Bundler</span>
+</header>
+ 
+<main>
+  <aside>
+ 
+    <!-- Student name -->
+    <div>
+      <div class="section-label">Student</div>
+      <div class="field">
+        <label for="student-name">Your name</label>
+        <input type="text" id="student-name" placeholder="e.g. Jane Smith" autocomplete="name">
+      </div>
+    </div>
+ 
+    <div class="divider"></div>
+ 
+    <!-- WEBCAM -->
+    <div>
+      <div class="section-label">Webcam Capture</div>
+      <div class="webcam-container">
+        <div id="video-wrapper">
+          <video id="webcam" autoplay playsinline></video>
+          <div class="video-placeholder" id="cam-placeholder">
+            Camera off<br>
+            <span style="font-size:0.62rem">Click "Start Camera" to begin</span>
+          </div>
+        </div>
+        <div class="webcam-controls">
+          <button class="btn-ghost" id="btn-cam-toggle">Start Camera</button>
+          <button class="btn-primary" id="btn-capture" disabled>Capture Page</button>
+        </div>
+ 
+        <div class="pending-section" id="webcam-pending" style="display:none;">
+          <div class="pending-header">
+            <span class="pending-title">Captured pages</span>
+            <span class="pending-count" id="webcam-pending-count">0 pages</span>
+          </div>
+          <div class="pages-strip" id="webcam-pages-strip"></div>
           <div class="field">
-            <label for="student-name">Your name</label>
-            <input
-              type="text"
-              id="student-name"
-              placeholder="e.g. Jane Smith"
-              autocomplete="name"
-            />
+            <label for="webcam-assign-name">Assignment name (required)</label>
+            <input type="text" id="webcam-assign-name" placeholder="e.g. Chapter 5 Worksheet">
           </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Webcam capture -->
-        <div>
-          <div class="section-label">Webcam Capture</div>
-          <div class="webcam-container">
-            <div id="video-wrapper">
-              <video id="webcam" autoplay playsinline></video>
-              <div class="video-placeholder" id="cam-placeholder">
-                Camera off<br />
-                <span style="font-size: 0.65rem"
-                  >Click "Start Camera" to begin</span
-                >
-              </div>
-            </div>
-
-            <div class="webcam-controls">
-              <button class="btn-ghost" id="btn-cam-toggle">
-                Start Camera
-              </button>
-              <button class="btn-primary" id="btn-capture" disabled>
-                Capture
-              </button>
-            </div>
-
-            <div class="field" id="photo-name-field" style="display: none">
-              <label for="photo-name">Assignment name (required)</label>
-              <input
-                type="text"
-                id="photo-name"
-                placeholder="e.g. Chapter 5 Worksheet"
-              />
-            </div>
-
-            <canvas id="capture-canvas"></canvas>
+          <div class="pending-actions">
+            <button class="btn-primary btn-sm" id="btn-webcam-commit">Add to Bundle</button>
+            <button class="btn-ghost btn-sm" id="btn-webcam-clear">Clear All</button>
           </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Google Docs -->
-        <div>
-          <div class="section-label">Google Document</div>
-          <div style="display: flex; flex-direction: column; gap: 0.6rem">
-            <div class="field">
-              <label for="gdoc-url"
-                >Google Docs URL (set share settings to: "anyone with link can
-                view")</label
-              >
-              <input
-                type="url"
-                id="gdoc-url"
-                placeholder="https://docs.google.com/document/d/..."
-              />
-            </div>
-            <div class="field">
-              <label for="gdoc-name"
-                >Custom name
-                <span style="color: var(--text-dim)"
-                  >(optional, defaults to doc title)</span
-                ></label
-              >
-              <input
-                type="text"
-                id="gdoc-name"
-                placeholder="Leave blank to use document title"
-              />
-            </div>
-            <button
-              class="btn-primary"
-              id="btn-add-gdoc"
-              style="align-self: flex-start; padding: 0.6rem 1.2rem"
-            >
-              Add Document
-            </button>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- File Upload -->
-        <div>
-          <div class="section-label">Upload File</div>
-          <div style="display: flex; flex-direction: column; gap: 0.6rem">
-            <div class="upload-zone" id="upload-zone">
-              <input
-                type="file"
-                id="file-input"
-                accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
-                multiple
-              />
-              <div class="upload-zone-label">
-                <strong>Click to browse</strong> or drag and drop<br />
-                files here to add them
-              </div>
-              <div class="upload-zone-types">
-                PDF &middot; JPG &middot; PNG &middot; GIF &middot; WEBP
-              </div>
-            </div>
-            <div class="field" id="upload-name-field" style="display: none">
-              <label for="upload-name"
-                >Assignment name
-                <span style="color: var(--text-dim)"
-                  >(for images — required)</span
-                ></label
-              >
-              <input
-                type="text"
-                id="upload-name"
-                placeholder="e.g. Lab Report Photos"
-              />
-            </div>
-            <button
-              class="btn-primary"
-              id="btn-add-upload"
-              style="
-                align-self: flex-start;
-                padding: 0.6rem 1.2rem;
-                display: none;
-              "
-            >
-              Add to Bundle
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <!-- RIGHT PANEL: QUEUE -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Bundle Queue</h2>
-          <span class="queue-count" id="queue-count">0 items</span>
-        </div>
-
-        <div class="queue-list" id="queue-list">
-          <div class="queue-empty" id="queue-empty">
-            No assignments added yet.<br />
-            Capture a photo or add a Google Doc<br />to get started.
-          </div>
-        </div>
-
-        <div class="panel-footer">
-          <button class="btn-primary" id="btn-generate">
-            Generate PDF Bundle
-          </button>
-          <span id="status-msg"></span>
         </div>
       </div>
-    </main>
-
-    <!-- Loading overlay -->
-    <div id="loading-overlay">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loading-text">Building bundle...</div>
     </div>
-
-    <!-- Notification -->
-    <div id="notif" id="notif"></div>
-
-    <script>
-      (() => {
-        // ---- STATE ----
-        let items = []; // { id, type:'photo'|'gdoc', name, data, thumb }
-        let stream = null;
-        let cameraOn = false;
-        let dragSrcIdx = null;
-
-        // ---- ELEMENTS ----
-        const video = document.getElementById("webcam");
-        const camPlaceholder = document.getElementById("cam-placeholder");
-        const btnCamToggle = document.getElementById("btn-cam-toggle");
-        const btnCapture = document.getElementById("btn-capture");
-        const photoNameField = document.getElementById("photo-name-field");
-        const photoNameInput = document.getElementById("photo-name");
-        const captureCanvas = document.getElementById("capture-canvas");
-        const gdocUrl = document.getElementById("gdoc-url");
-        const gdocName = document.getElementById("gdoc-name");
-        const btnAddGdoc = document.getElementById("btn-add-gdoc");
-        const queueList = document.getElementById("queue-list");
-        const queueEmpty = document.getElementById("queue-empty");
-        const queueCount = document.getElementById("queue-count");
-        const btnGenerate = document.getElementById("btn-generate");
-        const statusMsg = document.getElementById("status-msg");
-        const loadingOverlay = document.getElementById("loading-overlay");
-        const loadingText = document.getElementById("loading-text");
-        const studentName = document.getElementById("student-name");
-        const notif = document.getElementById("notif");
-
-        // ---- UTILS ----
-        function uid() {
-          return Math.random().toString(36).slice(2, 9);
-        }
-
-        function showNotif(msg, duration = 2500) {
-          notif.textContent = msg;
-          notif.classList.add("show");
-          setTimeout(() => notif.classList.remove("show"), duration);
-        }
-
-        function setStatus(msg, type = "") {
-          statusMsg.textContent = msg;
-          statusMsg.className = type;
-        }
-
-        function updateQueueUI() {
-          queueEmpty.style.display = items.length === 0 ? "block" : "none";
-          queueCount.textContent = `${items.length} item${
-            items.length !== 1 ? "s" : ""
-          }`;
-        }
-
-        // ---- WEBCAM ----
-        btnCamToggle.addEventListener("click", async () => {
-          if (!cameraOn) {
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" },
-                audio: false,
-              });
-              video.srcObject = stream;
-              video.classList.add("active");
-              camPlaceholder.style.display = "none";
-              btnCamToggle.textContent = "Stop Camera";
-              btnCapture.disabled = false;
-              photoNameField.style.display = "flex";
-              cameraOn = true;
-            } catch (e) {
-              showNotif("Camera access denied or unavailable.");
-            }
-          } else {
-            stopCamera();
+ 
+    <div class="divider"></div>
+ 
+    <!-- GOOGLE DOCS -->
+    <div>
+      <div class="section-label">Google Document</div>
+      <div style="display:flex; flex-direction:column; gap:0.55rem;">
+        <div class="field">
+          <label for="gdoc-url">Google Docs URL</label>
+          <input type="url" id="gdoc-url" placeholder="https://docs.google.com/document/d/...">
+        </div>
+        <div class="field">
+          <label for="gdoc-name">Custom name <span style="color:var(--text-dim)">(optional)</span></label>
+          <input type="text" id="gdoc-name" placeholder="Defaults to document title">
+        </div>
+        <button class="btn-primary btn-sm" id="btn-add-gdoc" style="align-self:flex-start;">Add Document</button>
+      </div>
+    </div>
+ 
+    <div class="divider"></div>
+ 
+    <!-- FILE UPLOAD -->
+    <div>
+      <div class="section-label">Upload Files</div>
+      <div style="display:flex; flex-direction:column; gap:0.55rem;">
+        <div class="upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" multiple>
+          <div class="upload-zone-label">
+            <strong>Click to browse</strong> or drag and drop<br>
+            Multiple files form one assignment
+          </div>
+          <div class="upload-zone-types">PDF &middot; JPG &middot; PNG &middot; GIF &middot; WEBP</div>
+        </div>
+ 
+        <div class="pending-section" id="upload-pending" style="display:none;">
+          <div class="pending-header">
+            <span class="pending-title">Pending pages</span>
+            <span class="pending-count" id="upload-pending-count">0 pages</span>
+          </div>
+          <div class="pages-strip" id="upload-pages-strip"></div>
+          <div class="field">
+            <label for="upload-assign-name">Assignment name (required)</label>
+            <input type="text" id="upload-assign-name" placeholder="e.g. Lab Report">
+          </div>
+          <div class="pending-actions">
+            <button class="btn-primary btn-sm" id="btn-upload-commit">Add to Bundle</button>
+            <button class="btn-ghost btn-sm" id="btn-upload-clear">Clear All</button>
+          </div>
+        </div>
+      </div>
+    </div>
+ 
+  </aside>
+ 
+  <!-- QUEUE PANEL -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Bundle Queue</h2>
+      <span class="queue-count" id="queue-count">0 assignments</span>
+    </div>
+ 
+    <div class="queue-list" id="queue-list">
+      <div class="queue-empty" id="queue-empty">
+        No assignments added yet.<br>
+        Capture photos, upload files, or add a Google Doc<br>to get started.
+      </div>
+    </div>
+ 
+    <div class="panel-footer">
+      <button class="btn-primary" id="btn-generate">Generate PDF Bundle</button>
+      <span id="status-msg"></span>
+    </div>
+  </div>
+</main>
+ 
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Building bundle...</div>
+</div>
+ 
+<div id="notif"></div>
+<canvas id="capture-canvas"></canvas>
+ 
+<script>
+(() => {
+  // DATA MODEL
+  // assignments: [{ id, name, source:'webcam'|'upload'|'gdoc', pages:[{ kind:'image'|'pdf', data }] }]
+  let assignments = [];
+  let dragSrcIdx  = null;
+  let webcamPending = []; // { kind:'image', data: dataUrl }
+  let uploadPending = []; // { kind:'image'|'pdf', data, label }
+ 
+  // DOM
+  const video            = document.getElementById('webcam');
+  const camPlaceholder   = document.getElementById('cam-placeholder');
+  const btnCamToggle     = document.getElementById('btn-cam-toggle');
+  const btnCapture       = document.getElementById('btn-capture');
+  const captureCanvas    = document.getElementById('capture-canvas');
+  const webcamPendingEl  = document.getElementById('webcam-pending');
+  const webcamPagesStrip = document.getElementById('webcam-pages-strip');
+  const webcamCountEl    = document.getElementById('webcam-pending-count');
+  const webcamNameInput  = document.getElementById('webcam-assign-name');
+  const btnWebcamCommit  = document.getElementById('btn-webcam-commit');
+  const btnWebcamClear   = document.getElementById('btn-webcam-clear');
+ 
+  const gdocUrlInput     = document.getElementById('gdoc-url');
+  const gdocNameInput    = document.getElementById('gdoc-name');
+  const btnAddGdoc       = document.getElementById('btn-add-gdoc');
+ 
+  const uploadZone       = document.getElementById('upload-zone');
+  const fileInput        = document.getElementById('file-input');
+  const uploadPendingEl  = document.getElementById('upload-pending');
+  const uploadPagesStrip = document.getElementById('upload-pages-strip');
+  const uploadCountEl    = document.getElementById('upload-pending-count');
+  const uploadNameInput  = document.getElementById('upload-assign-name');
+  const btnUploadCommit  = document.getElementById('btn-upload-commit');
+  const btnUploadClear   = document.getElementById('btn-upload-clear');
+ 
+  const queueList        = document.getElementById('queue-list');
+  const queueEmpty       = document.getElementById('queue-empty');
+  const queueCountEl     = document.getElementById('queue-count');
+  const btnGenerate      = document.getElementById('btn-generate');
+  const statusMsg        = document.getElementById('status-msg');
+  const loadingOverlay   = document.getElementById('loading-overlay');
+  const loadingText      = document.getElementById('loading-text');
+  const studentName      = document.getElementById('student-name');
+  const notif            = document.getElementById('notif');
+ 
+  // UTILS
+  function uid() { return Math.random().toString(36).slice(2, 9); }
+  function tick() { return new Promise(r => setTimeout(r, 0)); }
+  function showNotif(msg, d = 2600) {
+    notif.textContent = msg;
+    notif.classList.add('show');
+    setTimeout(() => notif.classList.remove('show'), d);
+  }
+  function setStatus(msg, type = '') {
+    statusMsg.textContent = msg;
+    statusMsg.className = type;
+  }
+  function readAsDataURL(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+  }
+  function readAsArrayBuffer(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej;
+      r.readAsArrayBuffer(file);
+    });
+  }
+  function updateQueueUI() {
+    queueEmpty.style.display = assignments.length === 0 ? 'block' : 'none';
+    queueCountEl.textContent = `${assignments.length} assignment${assignments.length !== 1 ? 's' : ''}`;
+  }
+ 
+  // ================================================================
+  // WEBCAM
+  // ================================================================
+  let stream = null, cameraOn = false;
+ 
+  btnCamToggle.addEventListener('click', async () => {
+    if (!cameraOn) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        video.srcObject = stream;
+        video.classList.add('active');
+        camPlaceholder.style.display = 'none';
+        btnCamToggle.textContent = 'Stop Camera';
+        btnCapture.disabled = false;
+        cameraOn = true;
+      } catch { showNotif('Camera access denied or unavailable.'); }
+    } else {
+      stopCamera();
+    }
+  });
+ 
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null;
+    video.classList.remove('active');
+    camPlaceholder.style.display = '';
+    btnCamToggle.textContent = 'Start Camera';
+    btnCapture.disabled = true;
+    cameraOn = false;
+  }
+ 
+  btnCapture.addEventListener('click', () => {
+    captureCanvas.width  = video.videoWidth  || 640;
+    captureCanvas.height = video.videoHeight || 480;
+    captureCanvas.getContext('2d').drawImage(video, 0, 0);
+    const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.92);
+ 
+    const flash = document.createElement('div');
+    flash.className = 'flash';
+    document.getElementById('video-wrapper').appendChild(flash);
+    setTimeout(() => flash.remove(), 400);
+ 
+    webcamPending.push({ kind: 'image', data: dataUrl });
+    renderWebcamPending();
+    showNotif(`Page ${webcamPending.length} captured`);
+  });
+ 
+  function renderWebcamPending() {
+    webcamPagesStrip.innerHTML = '';
+    webcamPending.forEach((page, idx) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'page-thumb-wrap';
+      const img = document.createElement('img');
+      img.src = page.data;
+      const rm = makeRemoveBtn(() => { webcamPending.splice(idx, 1); renderWebcamPending(); });
+      wrap.appendChild(img);
+      wrap.appendChild(rm);
+      webcamPagesStrip.appendChild(wrap);
+    });
+    webcamCountEl.textContent = `${webcamPending.length} page${webcamPending.length !== 1 ? 's' : ''}`;
+    webcamPendingEl.style.display = webcamPending.length > 0 ? 'flex' : 'none';
+  }
+ 
+  btnWebcamCommit.addEventListener('click', () => {
+    const name = webcamNameInput.value.trim();
+    if (!name) { showNotif('Enter an assignment name.'); return; }
+    if (webcamPending.length === 0) { showNotif('Capture at least one page first.'); return; }
+    addAssignment({ name, pages: [...webcamPending], source: 'webcam' });
+    webcamPending = [];
+    webcamNameInput.value = '';
+    renderWebcamPending();
+    showNotif(`Added: ${name}`);
+  });
+ 
+  btnWebcamClear.addEventListener('click', () => {
+    webcamPending = [];
+    webcamNameInput.value = '';
+    renderWebcamPending();
+  });
+ 
+  // ================================================================
+  // GOOGLE DOCS
+  // ================================================================
+  function extractDocId(url) {
+    const m = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+    return m ? m[1] : null;
+  }
+ 
+  btnAddGdoc.addEventListener('click', async () => {
+    const url = gdocUrlInput.value.trim();
+    if (!url) { showNotif('Paste a Google Docs URL first.'); return; }
+    const docId = extractDocId(url);
+    if (!docId) { showNotif('Could not find a document ID in that URL.'); return; }
+    const customName = gdocNameInput.value.trim();
+ 
+    btnAddGdoc.disabled = true;
+    btnAddGdoc.textContent = 'Loading...';
+    setStatus('Fetching document...', '');
+ 
+    try {
+      let docTitle = customName;
+      if (!docTitle) {
+        try {
+          const resp = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`);
+          if (resp.ok) {
+            const text = await resp.text();
+            const firstLine = text.split('\n').find(l => l.trim().length > 0);
+            if (firstLine) docTitle = firstLine.trim().slice(0, 80);
           }
+        } catch (_) {}
+        if (!docTitle) docTitle = `Google Doc (${docId.slice(0, 8)})`;
+      }
+ 
+      const pdfResp = await fetch(`https://docs.google.com/document/d/${docId}/export?format=pdf`);
+      if (!pdfResp.ok) throw new Error('Export failed. Make sure the doc is shared publicly (Anyone with the link can view).');
+      const arrayBuffer = await pdfResp.arrayBuffer();
+ 
+      addAssignment({ name: docTitle, pages: [{ kind: 'pdf', data: arrayBuffer }], source: 'gdoc' });
+      gdocUrlInput.value = '';
+      gdocNameInput.value = '';
+      showNotif(`Added: ${docTitle}`);
+      setStatus('');
+    } catch (e) {
+      setStatus(e.message || 'Failed to fetch document.', 'error');
+    } finally {
+      btnAddGdoc.disabled = false;
+      btnAddGdoc.textContent = 'Add Document';
+    }
+  });
+ 
+  // ================================================================
+  // FILE UPLOAD — multiple files = one assignment
+  // ================================================================
+  fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ''; });
+ 
+  uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('drag-active'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-active'));
+  uploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-active');
+    handleFiles(e.dataTransfer.files);
+  });
+ 
+  async function handleFiles(files) {
+    const valid = Array.from(files).filter(f => /\.(pdf|jpe?g|png|gif|webp)$/i.test(f.name));
+    if (valid.length === 0) { showNotif('No supported files (PDF, JPG, PNG, GIF, WEBP).'); return; }
+ 
+    for (const file of valid) {
+      if (file.type === 'application/pdf') {
+        const ab = await readAsArrayBuffer(file);
+        uploadPending.push({ kind: 'pdf', data: ab, label: file.name.replace(/\.pdf$/i, '') });
+      } else {
+        const dataUrl = await readAsDataURL(file);
+        uploadPending.push({ kind: 'image', data: dataUrl, label: file.name });
+      }
+    }
+ 
+    // Auto-fill name from filename if single file and field is empty
+    if (uploadPending.length === 1 && !uploadNameInput.value.trim()) {
+      uploadNameInput.value = uploadPending[0].label.replace(/\.[^.]+$/, '');
+    }
+ 
+    renderUploadPending();
+    showNotif(`${valid.length} file${valid.length !== 1 ? 's' : ''} added to pending`);
+  }
+ 
+  function renderUploadPending() {
+    uploadPagesStrip.innerHTML = '';
+    uploadPending.forEach((page, idx) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'page-thumb-wrap';
+      if (page.kind === 'image') {
+        const img = document.createElement('img');
+        img.src = page.data;
+        wrap.appendChild(img);
+      } else {
+        const d = document.createElement('div');
+        d.className = 'pdf-thumb';
+        d.textContent = 'PDF';
+        wrap.appendChild(d);
+      }
+      const rm = makeRemoveBtn(() => { uploadPending.splice(idx, 1); renderUploadPending(); });
+      wrap.appendChild(rm);
+      uploadPagesStrip.appendChild(wrap);
+    });
+    uploadCountEl.textContent = `${uploadPending.length} page${uploadPending.length !== 1 ? 's' : ''}`;
+    uploadPendingEl.style.display = uploadPending.length > 0 ? 'flex' : 'none';
+  }
+ 
+  btnUploadCommit.addEventListener('click', () => {
+    const name = uploadNameInput.value.trim();
+    if (!name) { showNotif('Enter an assignment name.'); return; }
+    if (uploadPending.length === 0) { showNotif('Add at least one file first.'); return; }
+    addAssignment({ name, pages: [...uploadPending], source: 'upload' });
+    uploadPending = [];
+    uploadNameInput.value = '';
+    renderUploadPending();
+    showNotif(`Added: ${name}`);
+  });
+ 
+  btnUploadClear.addEventListener('click', () => {
+    uploadPending = [];
+    uploadNameInput.value = '';
+    renderUploadPending();
+  });
+ 
+  function makeRemoveBtn(onClick) {
+    const rm = document.createElement('button');
+    rm.className = 'remove-page';
+    rm.textContent = 'x';
+    rm.title = 'Remove this page';
+    rm.addEventListener('click', onClick);
+    return rm;
+  }
+ 
+  // ================================================================
+  // QUEUE
+  // ================================================================
+  function addAssignment(asgn) {
+    asgn.id = uid();
+    assignments.push(asgn);
+    renderAssignmentItem(asgn);
+    updateQueueUI();
+  }
+ 
+  function removeAssignment(id) {
+    assignments = assignments.filter(a => a.id !== id);
+    document.querySelector(`.queue-item[data-id="${id}"]`)?.remove();
+    updateQueueUI();
+  }
+ 
+  function sourceLabel(source, pages) {
+    const pg = `${pages.length} page${pages.length !== 1 ? 's' : ''}`;
+    if (source === 'gdoc')   return `Google Document  ·  ${pg}`;
+    if (source === 'webcam') return `Webcam capture  ·  ${pg}`;
+    return `Uploaded  ·  ${pg}`;
+  }
+ 
+  function renderAssignmentItem(asgn) {
+    const item = document.createElement('div');
+    item.className = 'queue-item';
+    item.dataset.id = asgn.id;
+    item.draggable = true;
+ 
+    const header = document.createElement('div');
+    header.className = 'qi-header';
+ 
+    const handle = document.createElement('span');
+    handle.className = 'qi-handle';
+    handle.title = 'Drag to reorder';
+    handle.textContent = ':::';
+ 
+    const info = document.createElement('div');
+    info.className = 'qi-info';
+ 
+    const nameInput = document.createElement('input');
+    nameInput.className = 'qi-name-input';
+    nameInput.type = 'text';
+    nameInput.value = asgn.name;
+    nameInput.addEventListener('input', () => { asgn.name = nameInput.value; });
+ 
+    const meta = document.createElement('div');
+    meta.className = 'qi-meta';
+    meta.textContent = sourceLabel(asgn.source, asgn.pages);
+ 
+    info.appendChild(nameInput);
+    info.appendChild(meta);
+ 
+    const del = document.createElement('button');
+    del.className = 'btn-danger';
+    del.textContent = 'Remove';
+    del.addEventListener('click', () => removeAssignment(asgn.id));
+ 
+    header.appendChild(handle);
+    header.appendChild(info);
+    header.appendChild(del);
+    item.appendChild(header);
+ 
+    // Thumbnail strip — show up to 7, then "+N more"
+    if (asgn.pages.length > 0) {
+      const strip = document.createElement('div');
+      strip.className = 'qi-pages';
+      const show = Math.min(asgn.pages.length, 7);
+      for (let i = 0; i < show; i++) {
+        const pg = asgn.pages[i];
+        if (pg.kind === 'image') {
+          const img = document.createElement('img');
+          img.className = 'qi-page-thumb';
+          img.src = pg.data;
+          strip.appendChild(img);
+        } else {
+          const d = document.createElement('div');
+          d.className = 'qi-page-pdf';
+          d.textContent = 'PDF';
+          strip.appendChild(d);
+        }
+      }
+      if (asgn.pages.length > 7) {
+        const more = document.createElement('div');
+        more.className = 'qi-more';
+        more.textContent = `+${asgn.pages.length - 7}`;
+        strip.appendChild(more);
+      }
+      item.appendChild(strip);
+    }
+ 
+    // Drag reorder
+    item.addEventListener('dragstart', () => {
+      dragSrcIdx = assignments.findIndex(a => a.id === asgn.id);
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('drag-over'));
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      const destIdx = assignments.findIndex(a => a.id === asgn.id);
+      if (dragSrcIdx === null || dragSrcIdx === destIdx) return;
+      const [moved] = assignments.splice(dragSrcIdx, 1);
+      assignments.splice(destIdx, 0, moved);
+      dragSrcIdx = null;
+      rerenderQueue();
+    });
+ 
+    queueList.insertBefore(item, queueEmpty);
+  }
+ 
+  function rerenderQueue() {
+    queueList.querySelectorAll('.queue-item').forEach(el => el.remove());
+    assignments.forEach(renderAssignmentItem);
+    updateQueueUI();
+  }
+ 
+  // ================================================================
+  // PDF GENERATION
+  // ================================================================
+  btnGenerate.addEventListener('click', generateBundle);
+ 
+  async function generateBundle() {
+    if (assignments.length === 0) { showNotif('Add at least one assignment first.'); return; }
+    const name = studentName.value.trim() || 'Student';
+    setStatus('');
+    loadingOverlay.classList.add('active');
+ 
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+ 
+      // COVER PAGE
+      loadingText.textContent = 'Building cover page...';
+      await tick();
+ 
+      doc.setFillColor(13, 13, 13);
+      doc.rect(0, 0, W, H, 'F');
+      doc.setDrawColor(200, 169, 110);
+      doc.setLineWidth(1.5);
+      doc.line(54, 72, W - 54, 72);
+ 
+      doc.setFont('times', 'bold');
+      doc.setFontSize(42);
+      doc.setTextColor(200, 169, 110);
+      doc.text('Assignment Bundle', W / 2, 160, { align: 'center' });
+ 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(16);
+      doc.setTextColor(232, 224, 208);
+      doc.text(name, W / 2, 208, { align: 'center' });
+ 
+      const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      doc.setFontSize(10);
+      doc.setTextColor(122, 112, 96);
+      doc.text(dateStr, W / 2, 230, { align: 'center' });
+ 
+      doc.setDrawColor(42, 42, 42);
+      doc.setLineWidth(0.5);
+      doc.line(54, 268, W - 54, 268);
+ 
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(122, 112, 96);
+      doc.text('CONTENTS', 54, 295);
+ 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      assignments.forEach((asgn, idx) => {
+        const y = 318 + idx * 28;
+        doc.setTextColor(200, 169, 110);
+        doc.text(`${String(idx + 1).padStart(2, '0')}`, 54, y);
+        doc.setTextColor(232, 224, 208);
+        const truncated = asgn.name.length > 58 ? asgn.name.slice(0, 55) + '...' : asgn.name;
+        doc.text(truncated, 88, y);
+        doc.setTextColor(122, 112, 96);
+        doc.setFontSize(8);
+        doc.text(`${asgn.pages.length} pg`, W - 54, y, { align: 'right' });
+        doc.setFontSize(11);
+      });
+ 
+      doc.setDrawColor(200, 169, 110);
+      doc.setLineWidth(1.5);
+      doc.line(54, H - 72, W - 54, H - 72);
+ 
+      // EACH ASSIGNMENT
+      for (let i = 0; i < assignments.length; i++) {
+        const asgn = assignments[i];
+        loadingText.textContent = `Processing "${asgn.name}" (${i + 1}/${assignments.length})...`;
+        await tick();
+        await addAssignmentPages(doc, asgn, i + 1, W, H, name);
+      }
+ 
+      loadingText.textContent = 'Saving PDF...';
+      await tick();
+ 
+      const safeName = name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
+      doc.save(`${safeName}_Bundle.pdf`);
+      setStatus('Bundle downloaded successfully.', 'success');
+      showNotif('PDF bundle saved.');
+    } catch (e) {
+      console.error(e);
+      setStatus('Error: ' + (e.message || 'Failed to generate PDF.'), 'error');
+    } finally {
+      loadingOverlay.classList.remove('active');
+      loadingText.textContent = 'Building bundle...';
+    }
+  }
+ 
+  async function addAssignmentPages(doc, asgn, num, W, H, student) {
+    const margin = 54;
+    const HEADER_H = 50;
+    const CONT_H   = 22;
+ 
+    const sourceTag = asgn.source === 'gdoc'    ? 'GOOGLE DOCUMENT'
+                    : asgn.source === 'webcam'  ? 'PHOTO CAPTURE'
+                    : 'UPLOADED FILE';
+ 
+    // For PDF pages we need to know actual page count (a single 'pdf' entry may be multi-page)
+    // Expand pdf entries into individual rendered pages first
+    const renderedPages = []; // { kind:'image', data: dataUrl }
+    for (const pg of asgn.pages) {
+      if (pg.kind === 'image') {
+        renderedPages.push({ dataUrl: pg.data });
+      } else {
+        // PDF — get page count, render each page
+        const pageCount = await getPdfPageCount(pg.data);
+        for (let p = 0; p < pageCount; p++) {
+          const img = await renderPdfPageToImage(pg.data, p);
+          renderedPages.push({ dataUrl: img });
+        }
+      }
+    }
+ 
+    const total = renderedPages.length;
+ 
+    for (let p = 0; p < total; p++) {
+      doc.addPage();
+      const isFirst = p === 0;
+ 
+      if (isFirst) {
+        doc.setFillColor(20, 20, 20);
+        doc.rect(0, 0, W, HEADER_H, 'F');
+        doc.setDrawColor(200, 169, 110);
+        doc.setLineWidth(1);
+        doc.line(0, HEADER_H, W, HEADER_H);
+ 
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(122, 112, 96);
+        doc.text(`${String(num).padStart(2, '0')}  /  ${sourceTag}`, margin, 20);
+ 
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.setTextColor(232, 224, 208);
+        const trunc = asgn.name.length > 55 ? asgn.name.slice(0, 52) + '...' : asgn.name;
+        doc.text(trunc, margin, 38);
+ 
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(122, 112, 96);
+        doc.text(student, W - margin, 38, { align: 'right' });
+      } else {
+        doc.setFillColor(20, 20, 20);
+        doc.rect(0, 0, W, CONT_H, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(122, 112, 96);
+        const trunc = asgn.name.length > 48 ? asgn.name.slice(0, 45) + '...' : asgn.name;
+        doc.text(`${String(num).padStart(2, '0')}  ${trunc}  (page ${p + 1} of ${total})`, margin, 14);
+        doc.setDrawColor(42, 42, 42);
+        doc.setLineWidth(0.5);
+        doc.line(0, CONT_H, W, CONT_H);
+      }
+ 
+      const topOffset = isFirst ? HEADER_H + 8 : CONT_H + 6;
+      const availH = H - topOffset - 12;
+      const availW = W - margin * 2;
+ 
+      const pageData = renderedPages[p];
+      if (pageData && pageData.dataUrl) {
+        await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const ar = img.width / img.height;
+            let iW = availW, iH = availW / ar;
+            if (iH > availH) { iH = availH; iW = iH * ar; }
+            const iX = margin + (availW - iW) / 2;
+            doc.addImage(img, 'JPEG', iX, topOffset, iW, iH, undefined, 'FAST');
+            resolve();
+          };
+          img.src = pageData.dataUrl;
         });
-
-        function stopCamera() {
-          if (stream) {
-            stream.getTracks().forEach((t) => t.stop());
-            stream = null;
-          }
-          video.srcObject = null;
-          video.classList.remove("active");
-          camPlaceholder.style.display = "flex";
-          btnCamToggle.textContent = "Start Camera";
-          btnCapture.disabled = true;
-          photoNameField.style.display = "none";
-          cameraOn = false;
-        }
-
-        btnCapture.addEventListener("click", () => {
-          const name = photoNameInput.value.trim();
-          if (!name) {
-            showNotif("Enter an assignment name before capturing.");
-            return;
-          }
-
-          const flash = document.createElement("div");
-          flash.className = "flash";
-          document.getElementById("video-wrapper").appendChild(flash);
-          setTimeout(() => flash.remove(), 400);
-
-          captureCanvas.width = video.videoWidth || 640;
-          captureCanvas.height = video.videoHeight || 480;
-          const ctx = captureCanvas.getContext("2d");
-          ctx.drawImage(video, 0, 0);
-          const dataUrl = captureCanvas.toDataURL("image/jpeg", 0.92);
-
-          addItem({ type: "photo", name, data: dataUrl, thumb: dataUrl });
-          photoNameInput.value = "";
-          showNotif(`Captured: ${name}`);
-        });
-
-        // ---- FILE UPLOAD ----
-        const uploadZone = document.getElementById("upload-zone");
-        const fileInput = document.getElementById("file-input");
-        const uploadNameField = document.getElementById("upload-name-field");
-        const uploadNameInput = document.getElementById("upload-name");
-        const btnAddUpload = document.getElementById("btn-add-upload");
-
-        let pendingUploadFiles = []; // FileList staging area
-
-        fileInput.addEventListener("change", () => {
-          handleFileSelection(fileInput.files);
-        });
-
-        uploadZone.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          uploadZone.classList.add("drag-active");
-        });
-
-        uploadZone.addEventListener("dragleave", () =>
-          uploadZone.classList.remove("drag-active")
-        );
-
-        uploadZone.addEventListener("drop", (e) => {
-          e.preventDefault();
-          uploadZone.classList.remove("drag-active");
-          handleFileSelection(e.dataTransfer.files);
-        });
-
-        function handleFileSelection(files) {
-          if (!files || files.length === 0) return;
-          const valid = Array.from(files).filter((f) =>
-            /\.(pdf|jpe?g|png|gif|webp)$/i.test(f.name)
-          );
-          if (valid.length === 0) {
-            showNotif("No supported files found (PDF, JPG, PNG, GIF, WEBP).");
-            return;
-          }
-
-          pendingUploadFiles = valid;
-
-          const hasImages = valid.some((f) => f.type.startsWith("image/"));
-          const allPdfs = valid.every((f) => f.type === "application/pdf");
-
-          if (hasImages && !allPdfs) {
-            // Need a name for image uploads
-            uploadNameField.style.display = "flex";
-            uploadNameInput.value =
-              valid.length === 1 ? valid[0].name.replace(/\.[^.]+$/, "") : "";
-          } else {
-            uploadNameField.style.display = "none";
-          }
-
-          btnAddUpload.style.display = "inline-block";
-          btnAddUpload.textContent = `Add ${valid.length} file${
-            valid.length > 1 ? "s" : ""
-          }`;
-        }
-
-        btnAddUpload.addEventListener("click", async () => {
-          if (pendingUploadFiles.length === 0) return;
-
-          for (const file of pendingUploadFiles) {
-            const isPdf = file.type === "application/pdf";
-            const isImg = file.type.startsWith("image/");
-
-            if (isPdf) {
-              const arrayBuffer = await file.arrayBuffer();
-              const name = file.name.replace(/\.pdf$/i, "");
-              addItem({
-                type: "uploaded-pdf",
-                name,
-                data: arrayBuffer,
-                thumb: null,
-              });
-              showNotif(`Added: ${name}`);
-            } else if (isImg) {
-              const customName = uploadNameInput.value.trim();
-              if (
-                !customName &&
-                pendingUploadFiles.some((f) => f.type.startsWith("image/"))
-              ) {
-                showNotif("Enter a name for image uploads.");
-                return;
-              }
-              const dataUrl = await readFileAsDataURL(file);
-              const name =
-                pendingUploadFiles.length === 1
-                  ? customName || file.name.replace(/\.[^.]+$/, "")
-                  : `${customName} (${file.name})`;
-              addItem({ type: "photo", name, data: dataUrl, thumb: dataUrl });
-              showNotif(`Added: ${name}`);
-            }
-          }
-
-          // Reset
-          pendingUploadFiles = [];
-          fileInput.value = "";
-          uploadNameField.style.display = "none";
-          uploadNameInput.value = "";
-          btnAddUpload.style.display = "none";
-          btnAddUpload.textContent = "Add to Bundle";
-        });
-
-        function readFileAsDataURL(file) {
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
-        }
-
-        // ---- GOOGLE DOCS ----
-        function extractDocId(url) {
-          const m = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
-          return m ? m[1] : null;
-        }
-
-        btnAddGdoc.addEventListener("click", async () => {
-          const url = gdocUrl.value.trim();
-          if (!url) {
-            showNotif("Paste a Google Docs URL first.");
-            return;
-          }
-          const docId = extractDocId(url);
-          if (!docId) {
-            showNotif("Could not find a document ID in that URL.");
-            return;
-          }
-
-          const customName = gdocName.value.trim();
-
-          btnAddGdoc.disabled = true;
-          btnAddGdoc.textContent = "Loading...";
-          setStatus("Fetching document...", "");
-
-          try {
-            // Use Google Docs export as plain text to get the title
-            const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`;
-            const pdfExportUrl = `https://docs.google.com/document/d/${docId}/export?format=pdf`;
-
-            let docTitle = customName;
-
-            if (!docTitle) {
-              // Try to fetch the text version to extract title (first line)
-              try {
-                const resp = await fetch(exportUrl);
-                if (resp.ok) {
-                  const text = await resp.text();
-                  const firstLine = text
-                    .split("\n")
-                    .find((l) => l.trim().length > 0);
-                  if (firstLine) docTitle = firstLine.trim().slice(0, 80);
-                }
-              } catch (_) {}
-              if (!docTitle) docTitle = `Google Doc (${docId.slice(0, 8)})`;
-            }
-
-            // Fetch the actual PDF export
-            const pdfResp = await fetch(pdfExportUrl);
-            if (!pdfResp.ok)
-              throw new Error(
-                "Could not export. Make sure the doc is publicly shared (Anyone with the link can view)."
-              );
-
-            const pdfBlob = await pdfResp.blob();
-            const arrayBuffer = await pdfBlob.arrayBuffer();
-
-            addItem({
-              type: "gdoc",
-              name: docTitle,
-              data: arrayBuffer,
-              thumb: null,
-            });
-            gdocUrl.value = "";
-            gdocName.value = "";
-            showNotif(`Added: ${docTitle}`);
-            setStatus("");
-          } catch (e) {
-            setStatus(e.message || "Failed to fetch document.", "error");
-          } finally {
-            btnAddGdoc.disabled = false;
-            btnAddGdoc.textContent = "Add Document";
-          }
-        });
-
-        // ---- QUEUE MANAGEMENT ----
-        function addItem(item) {
-          item.id = uid();
-          items.push(item);
-          renderQueueItem(item);
-          updateQueueUI();
-        }
-
-        function removeItem(id) {
-          items = items.filter((i) => i.id !== id);
-          const el = document.querySelector(`[data-id="${id}"]`);
-          if (el) el.remove();
-          updateQueueUI();
-        }
-
-        function renderQueueItem(item) {
-          const row = document.createElement("div");
-          row.className = "queue-item";
-          row.dataset.id = item.id;
-          row.draggable = true;
-
-          // Thumb
-          const thumb = document.createElement("div");
-          thumb.className = "item-thumb";
-          if (item.type === "photo" && item.thumb) {
-            const img = document.createElement("img");
-            img.src = item.thumb;
-            thumb.appendChild(img);
-          } else {
-            thumb.textContent = item.type === "uploaded-pdf" ? "PDF" : "DOC";
-            thumb.style.color = "var(--accent)";
-            thumb.style.fontSize = "0.6rem";
-            thumb.style.letterSpacing = "0.12em";
-          }
-
-          // Info
-          const info = document.createElement("div");
-          info.className = "item-info";
-
-          const nameWrap = document.createElement("div");
-          nameWrap.className = "item-name";
-          const nameInput = document.createElement("input");
-          nameInput.type = "text";
-          nameInput.value = item.name;
-          nameInput.addEventListener("input", () => {
-            item.name = nameInput.value;
-          });
-          nameWrap.appendChild(nameInput);
-
-          const typeLabel = document.createElement("div");
-          typeLabel.className = "item-type";
-          typeLabel.textContent =
-            item.type === "photo"
-              ? "Photo capture"
-              : item.type === "uploaded-pdf"
-              ? "Uploaded PDF"
-              : "Google Document";
-
-          info.appendChild(nameWrap);
-          info.appendChild(typeLabel);
-
-          // Handle
-          const handle = document.createElement("span");
-          handle.className = "item-handle";
-          handle.title = "Drag to reorder";
-          handle.textContent = ":::";
-
-          // Delete
-          const del = document.createElement("button");
-          del.className = "btn-danger";
-          del.textContent = "Remove";
-          del.addEventListener("click", () => removeItem(item.id));
-
-          row.appendChild(handle);
-          row.appendChild(thumb);
-          row.appendChild(info);
-          row.appendChild(del);
-
-          // Drag reorder
-          row.addEventListener("dragstart", (e) => {
-            dragSrcIdx = items.findIndex((i) => i.id === item.id);
-            e.dataTransfer.effectAllowed = "move";
-          });
-
-          row.addEventListener("dragover", (e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-            document
-              .querySelectorAll(".queue-item")
-              .forEach((el) => el.classList.remove("drag-over"));
-            row.classList.add("drag-over");
-          });
-
-          row.addEventListener("dragleave", () =>
-            row.classList.remove("drag-over")
-          );
-
-          row.addEventListener("drop", (e) => {
-            e.preventDefault();
-            row.classList.remove("drag-over");
-            const destIdx = items.findIndex((i) => i.id === item.id);
-            if (dragSrcIdx === null || dragSrcIdx === destIdx) return;
-            const [moved] = items.splice(dragSrcIdx, 1);
-            items.splice(destIdx, 0, moved);
-            dragSrcIdx = null;
-            rerenderQueue();
-          });
-
-          queueList.insertBefore(row, queueEmpty);
-        }
-
-        function rerenderQueue() {
-          queueList
-            .querySelectorAll(".queue-item")
-            .forEach((el) => el.remove());
-          items.forEach(renderQueueItem);
-          updateQueueUI();
-        }
-
-        // ---- PDF GENERATION ----
-        btnGenerate.addEventListener("click", generateBundle);
-
-        async function generateBundle() {
-          if (items.length === 0) {
-            showNotif("Add at least one assignment first.");
-            return;
-          }
-
-          const name = studentName.value.trim() || "Student";
-
-          setStatus("");
-          loadingOverlay.classList.add("active");
-
-          try {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF({ unit: "pt", format: "letter" });
-            const W = doc.internal.pageSize.getWidth();
-            const H = doc.internal.pageSize.getHeight();
-
-            // ---- COVER PAGE ----
-            loadingText.textContent = "Building cover page...";
-            await tick();
-
-            doc.setFillColor(13, 13, 13);
-            doc.rect(0, 0, W, H, "F");
-
-            // Gold rule top
-            doc.setDrawColor(200, 169, 110);
-            doc.setLineWidth(1.5);
-            doc.line(54, 72, W - 54, 72);
-
-            // Title
-            doc.setFont("times", "bold");
-            doc.setFontSize(42);
-            doc.setTextColor(200, 169, 110);
-            doc.text("Assignment Bundle", W / 2, 160, { align: "center" });
-
-            // Student name
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(16);
-            doc.setTextColor(232, 224, 208);
-            doc.text(name, W / 2, 210, { align: "center" });
-
-            // Date
-            const dateStr = new Date().toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            });
-            doc.setFontSize(10);
-            doc.setTextColor(122, 112, 96);
-            doc.text(dateStr, W / 2, 235, { align: "center" });
-
-            // TOC
-            doc.setDrawColor(42, 42, 42);
-            doc.setLineWidth(0.5);
-            doc.line(54, 280, W - 54, 280);
-
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(9);
-            doc.setTextColor(122, 112, 96);
-            doc.text("CONTENTS", 54, 310);
-
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(11);
-            doc.setTextColor(232, 224, 208);
-            items.forEach((item, idx) => {
-              const y = 336 + idx * 28;
-              doc.setTextColor(200, 169, 110);
-              doc.text(`${String(idx + 1).padStart(2, "0")}`, 54, y);
-              doc.setTextColor(232, 224, 208);
-              const truncated =
-                item.name.length > 60
-                  ? item.name.slice(0, 57) + "..."
-                  : item.name;
-              doc.text(truncated, 90, y);
-              doc.setTextColor(122, 112, 96);
-              doc.setFontSize(9);
-              const typeLabel = item.type === "photo" ? "Photo" : "Document";
-              doc.text(typeLabel, W - 54, y, { align: "right" });
-              doc.setFontSize(11);
-            });
-
-            // Gold rule bottom
-            doc.setDrawColor(200, 169, 110);
-            doc.setLineWidth(1.5);
-            doc.line(54, H - 72, W - 54, H - 72);
-
-            // ---- ITEMS ----
-            for (let i = 0; i < items.length; i++) {
-              const item = items[i];
-              loadingText.textContent = `Processing ${i + 1} of ${
-                items.length
-              }...`;
-              await tick();
-
-              if (item.type === "photo") {
-                await addPhotoPage(doc, item, i + 1, W, H, name);
-              } else {
-                // both 'gdoc' and 'uploaded-pdf' use the same PDF page renderer
-                await addGdocPages(doc, item, i + 1, W, H, name);
-              }
-            }
-
-            // ---- SAVE ----
-            loadingText.textContent = "Saving PDF...";
-            await tick();
-
-            const safeName = name
-              .replace(/[^a-zA-Z0-9 _-]/g, "")
-              .replace(/\s+/g, "_");
-            doc.save(`${safeName}_Bundle.pdf`);
-
-            setStatus("Bundle downloaded successfully.", "success");
-            showNotif("PDF bundle saved.");
-          } catch (e) {
-            console.error(e);
-            setStatus(
-              "Error: " + (e.message || "Failed to generate PDF."),
-              "error"
-            );
-          } finally {
-            loadingOverlay.classList.remove("active");
-            loadingText.textContent = "Building bundle...";
-          }
-        }
-
-        async function addPhotoPage(doc, item, num, W, H, studentName) {
-          doc.addPage();
-          const margin = 54;
-
-          // Header bar
-          doc.setFillColor(20, 20, 20);
-          doc.rect(0, 0, W, 50, "F");
-          doc.setDrawColor(200, 169, 110);
-          doc.setLineWidth(1);
-          doc.line(0, 50, W, 50);
-
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(8);
-          doc.setTextColor(122, 112, 96);
-          doc.text(
-            `${String(num).padStart(2, "0")}  /  PHOTO CAPTURE`,
-            margin,
-            22
-          );
-
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(14);
-          doc.setTextColor(232, 224, 208);
-          const truncated =
-            item.name.length > 55 ? item.name.slice(0, 52) + "..." : item.name;
-          doc.text(truncated, margin, 39);
-
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(8);
-          doc.setTextColor(122, 112, 96);
-          doc.text(studentName, W - margin, 39, { align: "right" });
-
-          // Image
-          const imgY = 70;
-          const maxImgH = H - imgY - margin;
-          const maxImgW = W - margin * 2;
-
-          await new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-              const aspectRatio = img.width / img.height;
-              let iW = maxImgW;
-              let iH = iW / aspectRatio;
-              if (iH > maxImgH) {
-                iH = maxImgH;
-                iW = iH * aspectRatio;
-              }
-              const iX = margin + (maxImgW - iW) / 2;
-              doc.addImage(img, "JPEG", iX, imgY, iW, iH, undefined, "FAST");
-              resolve();
-            };
-            img.src = item.data;
-          });
-        }
-
-        async function addGdocPages(doc, item, num, W, H, studentName) {
-          // Embed the exported PDF pages
-          try {
-            const { PDFDocument } = await getPdfLib();
-            const srcPdf = await PDFDocument.load(item.data);
-            const pageCount = srcPdf.getPageCount();
-
-            for (let p = 0; p < pageCount; p++) {
-              doc.addPage();
-              const margin = 54;
-
-              // Only show header on first page of this item
-              if (p === 0) {
-                doc.setFillColor(20, 20, 20);
-                doc.rect(0, 0, W, 50, "F");
-                doc.setDrawColor(200, 169, 110);
-                doc.setLineWidth(1);
-                doc.line(0, 50, W, 50);
-
-                doc.setFont("helvetica", "bold");
-                doc.setFontSize(8);
-                doc.setTextColor(122, 112, 96);
-                doc.text(
-                  `${String(num).padStart(2, "0")}  /  ${
-                    item.type === "uploaded-pdf"
-                      ? "UPLOADED PDF"
-                      : "GOOGLE DOCUMENT"
-                  }`,
-                  margin,
-                  22
-                );
-
-                doc.setFont("helvetica", "bold");
-                doc.setFontSize(14);
-                doc.setTextColor(232, 224, 208);
-                const truncated =
-                  item.name.length > 55
-                    ? item.name.slice(0, 52) + "..."
-                    : item.name;
-                doc.text(truncated, margin, 39);
-
-                doc.setFont("helvetica", "normal");
-                doc.setFontSize(8);
-                doc.setTextColor(122, 112, 96);
-                doc.text(studentName, W - margin, 39, { align: "right" });
-              }
-
-              // Render the PDF page as an image and embed it
-              const pageImg = await renderPdfPageToImage(item.data, p);
-              if (pageImg) {
-                const topOffset = p === 0 ? 58 : 10;
-                const imgH = H - topOffset - 20;
-                const imgW = W - margin * 2;
-                doc.addImage(
-                  pageImg,
-                  "JPEG",
-                  margin,
-                  topOffset,
-                  imgW,
-                  imgH,
-                  undefined,
-                  "FAST"
-                );
-              }
-            }
-          } catch (e) {
-            // Fallback: embed single image placeholder page
-            doc.addPage();
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(12);
-            doc.setTextColor(200, 169, 110);
-            doc.text(`[${item.name}]`, 54, 120);
-            doc.setTextColor(122, 112, 96);
-            doc.setFontSize(10);
-            doc.text(
-              "Document could not be rendered. Ensure it is publicly shared.",
-              54,
-              145
-            );
-          }
-        }
-
-        // Render a PDF page to a JPEG data URL using a hidden canvas
-        async function renderPdfPageToImage(arrayBuffer, pageIdx) {
-          try {
-            const pdfjsLib = await getPdfjsLib();
-            const copy = arrayBuffer.slice(0);
-            const pdf = await pdfjsLib.getDocument({ data: copy }).promise;
-            const page = await pdf.getPage(pageIdx + 1);
-            const viewport = page.getViewport({ scale: 1.8 });
-            const canvas = document.createElement("canvas");
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            const ctx = canvas.getContext("2d");
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            return canvas.toDataURL("image/jpeg", 0.85);
-          } catch (e) {
-            console.warn("PDF render error:", e);
-            return null;
-          }
-        }
-
-        // Lazy load pdf-lib
-        let _pdfLib = null;
-        async function getPdfLib() {
-          if (_pdfLib) return _pdfLib;
-          await loadScript(
-            "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
-          );
-          _pdfLib = window.PDFLib;
-          return _pdfLib;
-        }
-
-        // Lazy load pdfjs
-        let _pdfjsLib = null;
-        async function getPdfjsLib() {
-          if (_pdfjsLib) return _pdfjsLib;
-          await loadScript(
-            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
-          );
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-          _pdfjsLib = window.pdfjsLib;
-          return _pdfjsLib;
-        }
-
-        function loadScript(src) {
-          return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) {
-              resolve();
-              return;
-            }
-            const s = document.createElement("script");
-            s.src = src;
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-          });
-        }
-
-        function tick() {
-          return new Promise((r) => setTimeout(r, 0));
-        }
-
-        // ---- INIT ----
-        updateQueueUI();
-      })();
-    </script>
-  </body>
+      }
+    }
+  }
+ 
+  async function getPdfPageCount(arrayBuffer) {
+    try {
+      const pdfjsLib = await getPdfjsLib();
+      const copy = arrayBuffer.slice(0);
+      const pdf = await pdfjsLib.getDocument({ data: copy }).promise;
+      return pdf.numPages;
+    } catch { return 1; }
+  }
+ 
+  async function renderPdfPageToImage(arrayBuffer, pageIdx) {
+    try {
+      const pdfjsLib = await getPdfjsLib();
+      const copy = arrayBuffer.slice(0);
+      const pdf = await pdfjsLib.getDocument({ data: copy }).promise;
+      const page = await pdf.getPage(pageIdx + 1);
+      const viewport = page.getViewport({ scale: 1.8 });
+      const canvas = document.createElement('canvas');
+      canvas.width  = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      return canvas.toDataURL('image/jpeg', 0.88);
+    } catch (e) {
+      console.warn('PDF render error:', e);
+      return null;
+    }
+  }
+ 
+  let _pdfjsLib = null;
+  async function getPdfjsLib() {
+    if (_pdfjsLib) return _pdfjsLib;
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    _pdfjsLib = window.pdfjsLib;
+    return _pdfjsLib;
+  }
+ 
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = src; s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+ 
+  updateQueueUI();
+})();
+</script>
+</body>
 </html>
+ 
