@@ -476,6 +476,209 @@ canvas { display: none; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ================================================================
+   PREVIEW MODAL
+   ================================================================ */
+#preview-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: #080808;
+  flex-direction: column;
+}
+#preview-modal.open { display: flex; }
+
+#preview-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 1rem;
+}
+#preview-topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+#preview-topbar h2 {
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+#preview-topbar-meta {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+}
+#preview-topbar-right { display: flex; gap: 0.6rem; align-items: center; }
+
+#preview-hint {
+  padding: 0.5rem 2rem;
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#preview-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+/* Assignment section in preview */
+.preview-section {
+  margin-bottom: 2.5rem;
+}
+.preview-section-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.preview-section-num {
+  font-size: 0.65rem;
+  color: var(--accent);
+  letter-spacing: 0.15em;
+  flex-shrink: 0;
+}
+.preview-section-name {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-section-count {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+
+/* Page grid */
+.preview-page-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+/* Individual page card */
+.preview-page-card {
+  position: relative;
+  width: 160px;
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+}
+.preview-page-card:active { cursor: grabbing; }
+.preview-page-card.dragging {
+  opacity: 0.35;
+}
+.preview-page-card.drop-target .preview-page-inner {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.preview-page-inner {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  aspect-ratio: 4/3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s;
+}
+.preview-page-inner:hover { border-color: var(--accent-dim); }
+
+.preview-page-inner img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.preview-page-inner .preview-pdf-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+}
+.preview-page-inner .preview-pdf-placeholder strong {
+  font-size: 1.1rem;
+  color: var(--accent);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+}
+
+.preview-page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.1rem 0;
+}
+.preview-page-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+.preview-page-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.6rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: var(--radius);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--mono);
+  transition: color 0.15s;
+}
+.preview-page-delete:hover { color: var(--red); }
+
+/* Loading state inside preview */
+#preview-loading {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex: 1;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+#preview-loading.active { display: flex; }
+#preview-loading .spinner { flex-shrink: 0; }
+
+/* Drop zone gap indicator */
+.preview-drop-gap {
+  width: 4px;
+  background: var(--accent);
+  border-radius: 2px;
+  align-self: stretch;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.preview-drop-gap.visible { opacity: 1; }
 </style>
 </head>
 <body>
@@ -602,10 +805,29 @@ canvas { display: none; }
 
     <div class="panel-footer">
       <button class="btn-primary" id="btn-generate">Generate PDF Bundle</button>
+      <button class="btn-ghost" id="btn-preview">Preview / Edit</button>
       <span id="status-msg"></span>
     </div>
   </div>
 </main>
+
+<div id="preview-modal">
+  <div id="preview-topbar">
+    <div id="preview-topbar-left">
+      <h2>Preview &amp; Edit</h2>
+      <span id="preview-topbar-meta"></span>
+    </div>
+    <div id="preview-topbar-right">
+      <button class="btn-ghost btn-sm" id="btn-preview-close">Close</button>
+    </div>
+  </div>
+  <div id="preview-hint">Drag pages to reorder within or across assignments &mdash; click "delete" to remove a page permanently.</div>
+  <div id="preview-loading">
+    <div class="spinner"></div>
+    <span id="preview-loading-text">Rendering pages...</span>
+  </div>
+  <div id="preview-scroll"></div>
+</div>
 
 <div id="loading-overlay">
   <div class="spinner"></div>
@@ -1038,9 +1260,10 @@ canvas { display: none; }
 
     try {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-      const W = doc.internal.pageSize.getWidth();
-      const H = doc.internal.pageSize.getHeight();
+      // Google Slides default export size: 10 x 7.5 inches = 720 x 540 pt
+      const doc = new jsPDF({ unit: 'pt', format: [720, 540], orientation: 'landscape' });
+      const W = doc.internal.pageSize.getWidth();   // 720
+      const H = doc.internal.pageSize.getHeight();  // 540
 
       // COVER PAGE
       loadingText.textContent = 'Building cover page...';
@@ -1050,50 +1273,50 @@ canvas { display: none; }
       doc.rect(0, 0, W, H, 'F');
       doc.setDrawColor(200, 169, 110);
       doc.setLineWidth(1.5);
-      doc.line(54, 72, W - 54, 72);
+      doc.line(48, 60, W - 48, 60);
 
       doc.setFont('times', 'bold');
-      doc.setFontSize(42);
+      doc.setFontSize(38);
       doc.setTextColor(200, 169, 110);
-      doc.text('Assignment Bundle', W / 2, 160, { align: 'center' });
+      doc.text('Assignment Bundle', W / 2, 190, { align: 'center' });
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(16);
+      doc.setFontSize(15);
       doc.setTextColor(232, 224, 208);
-      doc.text(name, W / 2, 208, { align: 'center' });
+      doc.text(name, W / 2, 225, { align: 'center' });
 
       const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      doc.setFontSize(10);
+      doc.setFontSize(9);
       doc.setTextColor(122, 112, 96);
-      doc.text(dateStr, W / 2, 230, { align: 'center' });
+      doc.text(dateStr, W / 2, 245, { align: 'center' });
 
       doc.setDrawColor(42, 42, 42);
       doc.setLineWidth(0.5);
-      doc.line(54, 268, W - 54, 268);
+      doc.line(48, 272, W - 48, 272);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      doc.setFontSize(8);
       doc.setTextColor(122, 112, 96);
-      doc.text('CONTENTS', 54, 295);
+      doc.text('CONTENTS', 48, 294);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       assignments.forEach((asgn, idx) => {
-        const y = 318 + idx * 28;
+        const y = 314 + idx * 24;
         doc.setTextColor(200, 169, 110);
-        doc.text(`${String(idx + 1).padStart(2, '0')}`, 54, y);
+        doc.text(`${String(idx + 1).padStart(2, '0')}`, 48, y);
         doc.setTextColor(232, 224, 208);
-        const truncated = asgn.name.length > 58 ? asgn.name.slice(0, 55) + '...' : asgn.name;
-        doc.text(truncated, 88, y);
+        const truncated = asgn.name.length > 65 ? asgn.name.slice(0, 62) + '...' : asgn.name;
+        doc.text(truncated, 80, y);
         doc.setTextColor(122, 112, 96);
-        doc.setFontSize(8);
-        doc.text(`${asgn.pages.length} pg`, W - 54, y, { align: 'right' });
-        doc.setFontSize(11);
+        doc.setFontSize(7.5);
+        doc.text(`${asgn.pages.length} pg`, W - 48, y, { align: 'right' });
+        doc.setFontSize(10);
       });
 
       doc.setDrawColor(200, 169, 110);
       doc.setLineWidth(1.5);
-      doc.line(54, H - 72, W - 54, H - 72);
+      doc.line(48, H - 52, W - 48, H - 52);
 
       // EACH ASSIGNMENT
       for (let i = 0; i < assignments.length; i++) {
@@ -1120,89 +1343,180 @@ canvas { display: none; }
   }
 
   async function addAssignmentPages(doc, asgn, num, W, H, student) {
-    const margin = 54;
-    const HEADER_H = 50;
-    const CONT_H   = 22;
+    const margin  = 36;
+    const HEADER_H = 42;
+    const CONT_H   = 18;
 
-    const sourceTag = asgn.source === 'gdoc'    ? 'GOOGLE DOCUMENT'
-                    : asgn.source === 'webcam'  ? 'PHOTO CAPTURE'
+    const sourceTag = asgn.source === 'gdoc'   ? 'GOOGLE DOCUMENT'
+                    : asgn.source === 'webcam' ? 'PHOTO CAPTURE'
                     : 'UPLOADED FILE';
 
-    // For PDF pages we need to know actual page count (a single 'pdf' entry may be multi-page)
-    // Expand pdf entries into individual rendered pages first
-    const renderedPages = []; // { kind:'image', data: dataUrl }
+    // Expand all pages to rendered dataUrls
+    const renderedPages = [];
     for (const pg of asgn.pages) {
       if (pg.kind === 'image') {
-        renderedPages.push({ dataUrl: pg.data });
+        renderedPages.push(pg.data);
       } else {
-        // PDF — get page count, render each page
-        const pageCount = await getPdfPageCount(pg.data);
-        for (let p = 0; p < pageCount; p++) {
-          const img = await renderPdfPageToImage(pg.data, p);
-          renderedPages.push({ dataUrl: img });
+        const count = await getPdfPageCount(pg.data);
+        for (let p = 0; p < count; p++) {
+          renderedPages.push(await renderPdfPageToImage(pg.data, p));
         }
       }
     }
 
-    const total = renderedPages.length;
+    // Upload images: 2-up layout (two 8.5:11 portraits side-by-side per slide)
+    // Webcam and gdoc: 1 per slide
+    const isUpload = asgn.source === 'upload';
 
-    for (let p = 0; p < total; p++) {
-      doc.addPage();
-      const isFirst = p === 0;
-
-      if (isFirst) {
-        doc.setFillColor(20, 20, 20);
-        doc.rect(0, 0, W, HEADER_H, 'F');
-        doc.setDrawColor(200, 169, 110);
-        doc.setLineWidth(1);
-        doc.line(0, HEADER_H, W, HEADER_H);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(122, 112, 96);
-        doc.text(`${String(num).padStart(2, '0')}  /  ${sourceTag}`, margin, 20);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(14);
-        doc.setTextColor(232, 224, 208);
-        const trunc = asgn.name.length > 55 ? asgn.name.slice(0, 52) + '...' : asgn.name;
-        doc.text(trunc, margin, 38);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(122, 112, 96);
-        doc.text(student, W - margin, 38, { align: 'right' });
-      } else {
-        doc.setFillColor(20, 20, 20);
-        doc.rect(0, 0, W, CONT_H, 'F');
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(122, 112, 96);
-        const trunc = asgn.name.length > 48 ? asgn.name.slice(0, 45) + '...' : asgn.name;
-        doc.text(`${String(num).padStart(2, '0')}  ${trunc}  (page ${p + 1} of ${total})`, margin, 14);
-        doc.setDrawColor(42, 42, 42);
-        doc.setLineWidth(0.5);
-        doc.line(0, CONT_H, W, CONT_H);
+    if (isUpload) {
+      // Pair images: [img0, img1], [img2, img3], ...
+      // Each image is rendered at fixed 8.5:11 aspect ratio
+      const pairs = [];
+      for (let i = 0; i < renderedPages.length; i += 2) {
+        pairs.push(renderedPages.slice(i, i + 2));
       }
 
-      const topOffset = isFirst ? HEADER_H + 8 : CONT_H + 6;
-      const availH = H - topOffset - 12;
-      const availW = W - margin * 2;
+      for (let s = 0; s < pairs.length; s++) {
+        doc.addPage();
+        const pair = pairs[s];
+        const isFirst = s === 0;
+        const slideNum = s + 1;
+        const totalSlides = pairs.length;
 
-      const pageData = renderedPages[p];
-      if (pageData && pageData.dataUrl) {
-        await new Promise((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            const ar = img.width / img.height;
-            let iW = availW, iH = availW / ar;
-            if (iH > availH) { iH = availH; iW = iH * ar; }
-            const iX = margin + (availW - iW) / 2;
-            doc.addImage(img, 'JPEG', iX, topOffset, iW, iH, undefined, 'FAST');
-            resolve();
-          };
-          img.src = pageData.dataUrl;
-        });
+        // Header
+        if (isFirst) {
+          doc.setFillColor(20, 20, 20);
+          doc.rect(0, 0, W, HEADER_H, 'F');
+          doc.setDrawColor(200, 169, 110);
+          doc.setLineWidth(0.8);
+          doc.line(0, HEADER_H, W, HEADER_H);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.setTextColor(122, 112, 96);
+          doc.text(`${String(num).padStart(2, '0')}  /  ${sourceTag}`, margin, 16);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(13);
+          doc.setTextColor(232, 224, 208);
+          const trunc = asgn.name.length > 65 ? asgn.name.slice(0, 62) + '...' : asgn.name;
+          doc.text(trunc, margin, 32);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(122, 112, 96);
+          doc.text(student, W - margin, 32, { align: 'right' });
+        } else {
+          doc.setFillColor(20, 20, 20);
+          doc.rect(0, 0, W, CONT_H, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(122, 112, 96);
+          const trunc = asgn.name.length > 55 ? asgn.name.slice(0, 52) + '...' : asgn.name;
+          doc.text(`${String(num).padStart(2, '0')}  ${trunc}  (slide ${slideNum} of ${totalSlides})`, margin, 12);
+          doc.setDrawColor(42, 42, 42);
+          doc.setLineWidth(0.4);
+          doc.line(0, CONT_H, W, CONT_H);
+        }
+
+        const topOffset = isFirst ? HEADER_H + 6 : CONT_H + 5;
+        const availH = H - topOffset - 10;
+        const availW = W - margin * 2;
+
+        // Each image slot: half the available width with a small gap
+        const gap = 12;
+        const slotW = (availW - gap) / 2;
+        // Force 8.5:11 portrait ratio
+        const PAGE_AR = 8.5 / 11;
+        // Fit slot: constrain by slotW, then check height
+        let imgW = slotW;
+        let imgH = imgW / PAGE_AR;
+        if (imgH > availH) { imgH = availH; imgW = imgH * PAGE_AR; }
+
+        // Vertically center in available area
+        const imgY = topOffset + (availH - imgH) / 2;
+
+        for (let c = 0; c < pair.length; c++) {
+          const dataUrl = pair[c];
+          if (!dataUrl) continue;
+          const imgX = margin + c * (slotW + gap) + (slotW - imgW) / 2;
+          await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              doc.addImage(img, 'JPEG', imgX, imgY, imgW, imgH, undefined, 'FAST');
+              resolve();
+            };
+            img.src = dataUrl;
+          });
+          // Page number label below each image
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(122, 112, 96);
+          doc.text(`p.${s * 2 + c + 1}`, imgX + imgW / 2, imgY + imgH + 10, { align: 'center' });
+        }
+      }
+    } else {
+      // Webcam / Google Doc: 1 image per slide
+      for (let p = 0; p < renderedPages.length; p++) {
+        doc.addPage();
+        const isFirst = p === 0;
+        const total = renderedPages.length;
+
+        if (isFirst) {
+          doc.setFillColor(20, 20, 20);
+          doc.rect(0, 0, W, HEADER_H, 'F');
+          doc.setDrawColor(200, 169, 110);
+          doc.setLineWidth(0.8);
+          doc.line(0, HEADER_H, W, HEADER_H);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.setTextColor(122, 112, 96);
+          doc.text(`${String(num).padStart(2, '0')}  /  ${sourceTag}`, margin, 16);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(13);
+          doc.setTextColor(232, 224, 208);
+          const trunc = asgn.name.length > 65 ? asgn.name.slice(0, 62) + '...' : asgn.name;
+          doc.text(trunc, margin, 32);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(122, 112, 96);
+          doc.text(student, W - margin, 32, { align: 'right' });
+        } else {
+          doc.setFillColor(20, 20, 20);
+          doc.rect(0, 0, W, CONT_H, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(122, 112, 96);
+          const trunc = asgn.name.length > 55 ? asgn.name.slice(0, 52) + '...' : asgn.name;
+          doc.text(`${String(num).padStart(2, '0')}  ${trunc}  (page ${p + 1} of ${total})`, margin, 12);
+          doc.setDrawColor(42, 42, 42);
+          doc.setLineWidth(0.4);
+          doc.line(0, CONT_H, W, CONT_H);
+        }
+
+        const topOffset = isFirst ? HEADER_H + 6 : CONT_H + 5;
+        const availH = H - topOffset - 10;
+        const availW = W - margin * 2;
+        const dataUrl = renderedPages[p];
+
+        if (dataUrl) {
+          await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              const ar = img.width / img.height;
+              let iW = availW, iH = availW / ar;
+              if (iH > availH) { iH = availH; iW = iH * ar; }
+              const iX = margin + (availW - iW) / 2;
+              const iY = topOffset + (availH - iH) / 2;
+              doc.addImage(img, 'JPEG', iX, iY, iW, iH, undefined, 'FAST');
+              resolve();
+            };
+            img.src = dataUrl;
+          });
+        }
       }
     }
   }
@@ -1251,6 +1565,207 @@ canvas { display: none; }
       s.src = src; s.onload = resolve; s.onerror = reject;
       document.head.appendChild(s);
     });
+  }
+
+  // ================================================================
+  // PREVIEW MODAL
+  // ================================================================
+  const previewModal      = document.getElementById('preview-modal');
+  const previewScroll     = document.getElementById('preview-scroll');
+  const previewTopbarMeta = document.getElementById('preview-topbar-meta');
+  const previewLoading    = document.getElementById('preview-loading');
+  const previewLoadingTxt = document.getElementById('preview-loading-text');
+  const btnPreview        = document.getElementById('btn-preview');
+  const btnPreviewClose   = document.getElementById('btn-preview-close');
+
+  let previewDragSrc = null;
+
+  btnPreview.addEventListener('click', openPreview);
+  btnPreviewClose.addEventListener('click', () => previewModal.classList.remove('open'));
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && previewModal.classList.contains('open')) {
+      previewModal.classList.remove('open');
+    }
+  });
+
+  async function openPreview() {
+    if (assignments.length === 0) { showNotif('Add at least one assignment first.'); return; }
+    previewModal.classList.add('open');
+    previewScroll.style.display = 'none';
+    previewLoading.classList.add('active');
+
+    let totalPages = 0;
+    for (const asgn of assignments) {
+      for (const pg of asgn.pages) {
+        totalPages += pg.kind === 'image' ? 1 : await getPdfPageCount(pg.data);
+      }
+    }
+
+    previewLoadingTxt.textContent = `Rendering ${totalPages} page${totalPages !== 1 ? 's' : ''}...`;
+    await tick();
+
+    // Build _expanded arrays with cached rendered dataUrls
+    for (const asgn of assignments) {
+      const expanded = [];
+      for (const pg of asgn.pages) {
+        if (pg.kind === 'image') {
+          expanded.push({ dataUrl: pg.data });
+        } else {
+          const count = await getPdfPageCount(pg.data);
+          for (let i = 0; i < count; i++) {
+            if (!pg._rendered) pg._rendered = {};
+            if (!pg._rendered[i]) pg._rendered[i] = await renderPdfPageToImage(pg.data, i);
+            expanded.push({ dataUrl: pg._rendered[i] });
+          }
+        }
+      }
+      asgn._expanded = expanded;
+    }
+
+    previewLoading.classList.remove('active');
+    previewScroll.style.display = '';
+    renderPreview();
+  }
+
+  function renderPreview() {
+    previewScroll.innerHTML = '';
+    const totalPages = assignments.reduce((s, a) => s + (a._expanded?.length || 0), 0);
+    previewTopbarMeta.textContent =
+      `${assignments.length} assignment${assignments.length !== 1 ? 's' : ''}  ·  ${totalPages} page${totalPages !== 1 ? 's' : ''}`;
+
+    assignments.forEach((asgn, asgnIdx) => {
+      const expanded = asgn._expanded || [];
+      if (expanded.length === 0) return;
+
+      const section = document.createElement('div');
+      section.className = 'preview-section';
+
+      const hdr = document.createElement('div');
+      hdr.className = 'preview-section-header';
+      const numEl = document.createElement('span');
+      numEl.className = 'preview-section-num';
+      numEl.textContent = String(asgnIdx + 1).padStart(2, '0');
+      const nameEl = document.createElement('span');
+      nameEl.className = 'preview-section-name';
+      nameEl.textContent = asgn.name;
+      const cntEl = document.createElement('span');
+      cntEl.className = 'preview-section-count';
+      cntEl.textContent = `${expanded.length} pg`;
+      hdr.appendChild(numEl); hdr.appendChild(nameEl); hdr.appendChild(cntEl);
+      section.appendChild(hdr);
+
+      const grid = document.createElement('div');
+      grid.className = 'preview-page-grid';
+
+      expanded.forEach((ep, pgIdx) => {
+        grid.appendChild(buildPreviewCard(asgn, pgIdx, ep.dataUrl));
+      });
+
+      section.appendChild(grid);
+      previewScroll.appendChild(section);
+    });
+  }
+
+  function buildPreviewCard(asgn, pgIdx, dataUrl) {
+    const card = document.createElement('div');
+    card.className = 'preview-page-card';
+    card.draggable = true;
+    card.dataset.asgnId = asgn.id;
+    card.dataset.pgIdx = pgIdx;
+
+    const inner = document.createElement('div');
+    inner.className = 'preview-page-inner';
+    if (dataUrl) {
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.draggable = false;
+      inner.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'preview-pdf-placeholder';
+      ph.innerHTML = '<strong>PDF</strong><span>page</span>';
+      inner.appendChild(ph);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'preview-page-footer';
+    const label = document.createElement('span');
+    label.className = 'preview-page-label';
+    label.textContent = `pg ${pgIdx + 1}`;
+    const del = document.createElement('button');
+    del.className = 'preview-page-delete';
+    del.textContent = 'Delete';
+    del.addEventListener('click', (e) => { e.stopPropagation(); deletePreviewPage(asgn.id, pgIdx); });
+    footer.appendChild(label);
+    footer.appendChild(del);
+    card.appendChild(inner);
+    card.appendChild(footer);
+
+    // Drag-to-reorder
+    card.addEventListener('dragstart', (e) => {
+      previewDragSrc = { asgnId: asgn.id, pgIdx };
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.preview-page-card.drop-target').forEach(el => el.classList.remove('drop-target'));
+      previewDragSrc = null;
+    });
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!previewDragSrc) return;
+      if (previewDragSrc.asgnId === asgn.id && previewDragSrc.pgIdx === pgIdx) return;
+      document.querySelectorAll('.preview-page-card.drop-target').forEach(el => el.classList.remove('drop-target'));
+      card.classList.add('drop-target');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('drop-target'));
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('drop-target');
+      if (!previewDragSrc) return;
+      movePreviewPage(previewDragSrc.asgnId, previewDragSrc.pgIdx, asgn.id, pgIdx);
+    });
+
+    return card;
+  }
+
+  function deletePreviewPage(asgnId, pgIdx) {
+    const asgn = assignments.find(a => a.id === asgnId);
+    if (!asgn?._expanded) return;
+    asgn._expanded.splice(pgIdx, 1);
+    syncExpandedToPages(asgn);
+    if (asgn._expanded.length === 0) {
+      assignments = assignments.filter(a => a.id !== asgnId);
+    }
+    rerenderQueue();
+    renderPreview();
+  }
+
+  function movePreviewPage(srcAsgnId, srcPgIdx, dstAsgnId, dstPgIdx) {
+    const srcAsgn = assignments.find(a => a.id === srcAsgnId);
+    const dstAsgn = assignments.find(a => a.id === dstAsgnId);
+    if (!srcAsgn || !dstAsgn) return;
+
+    const [moved] = srcAsgn._expanded.splice(srcPgIdx, 1);
+    let insertAt = dstPgIdx;
+    if (srcAsgnId === dstAsgnId && srcPgIdx < dstPgIdx) insertAt--;
+    dstAsgn._expanded.splice(insertAt, 0, moved);
+
+    if (srcAsgnId !== dstAsgnId) {
+      syncExpandedToPages(srcAsgn);
+      if (srcAsgn._expanded.length === 0) assignments = assignments.filter(a => a.id !== srcAsgnId);
+    }
+    syncExpandedToPages(dstAsgn);
+    rerenderQueue();
+    renderPreview();
+  }
+
+  // After editing in preview, convert _expanded back to pages
+  function syncExpandedToPages(asgn) {
+    asgn.pages = (asgn._expanded || []).map(ep => ({ kind: 'image', data: ep.dataUrl }));
   }
 
   updateQueueUI();
