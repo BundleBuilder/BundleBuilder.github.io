@@ -679,6 +679,36 @@ canvas { display: none; }
   transition: opacity 0.1s;
 }
 .preview-drop-gap.visible { opacity: 1; }
+
+/* Empty assignment state */
+.queue-item.qi-empty { border-style: dashed; }
+.qi-empty-hint {
+  padding: 0.3rem 1rem 0.7rem 2.4rem;
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+
+/* Preview empty drop zone */
+.preview-empty-drop {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preview-empty-drop.drag-over-empty {
+  border-color: var(--accent);
+  background: #1a1710;
+  color: var(--accent);
+}
 </style>
 </head>
 <body>
@@ -793,7 +823,10 @@ canvas { display: none; }
   <div class="panel">
     <div class="panel-header">
       <h2>Bundle Queue</h2>
-      <span class="queue-count" id="queue-count">0 assignments</span>
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <span class="queue-count" id="queue-count">0 assignments</span>
+        <button class="btn-ghost btn-sm" id="btn-new-assignment">+ New Assignment</button>
+      </div>
     </div>
 
     <div class="queue-list" id="queue-list">
@@ -811,6 +844,10 @@ canvas { display: none; }
   </div>
 </main>
 
+<footer style="border-top:1px solid var(--border);padding:0.75rem 2.5rem;text-align:center;font-size:0.62rem;color:var(--text-dim);letter-spacing:0.08em;flex-shrink:0;">
+  &copy; 2026 Sigma Games
+</footer>
+
 <div id="preview-modal">
   <div id="preview-topbar">
     <div id="preview-topbar-left">
@@ -818,6 +855,7 @@ canvas { display: none; }
       <span id="preview-topbar-meta"></span>
     </div>
     <div id="preview-topbar-right">
+      <button class="btn-ghost btn-sm" id="btn-preview-new-assignment">+ New Assignment</button>
       <button class="btn-ghost btn-sm" id="btn-preview-close">Close</button>
     </div>
   </div>
@@ -1146,12 +1184,13 @@ canvas { display: none; }
     const pg = `${pages.length} page${pages.length !== 1 ? 's' : ''}`;
     if (source === 'gdoc')   return `Google Document  ·  ${pg}`;
     if (source === 'webcam') return `Webcam capture  ·  ${pg}`;
+    if (source === 'manual') return pages.length === 0 ? 'Empty — drag pages here from Preview' : `Manual  ·  ${pg}`;
     return `Uploaded  ·  ${pg}`;
   }
 
   function renderAssignmentItem(asgn) {
     const item = document.createElement('div');
-    item.className = 'queue-item';
+    item.className = 'queue-item' + (asgn.pages.length === 0 ? ' qi-empty' : '');
     item.dataset.id = asgn.id;
     item.draggable = true;
 
@@ -1188,6 +1227,14 @@ canvas { display: none; }
     header.appendChild(info);
     header.appendChild(del);
     item.appendChild(header);
+
+    // Empty hint
+    if (asgn.pages.length === 0) {
+      const hint = document.createElement('div');
+      hint.className = 'qi-empty-hint';
+      hint.textContent = 'No pages yet — open Preview / Edit and drag pages into this assignment';
+      item.appendChild(hint);
+    }
 
     // Thumbnail strip — show up to 7, then "+N more"
     if (asgn.pages.length > 0) {
@@ -1318,6 +1365,11 @@ canvas { display: none; }
       doc.setLineWidth(1.5);
       doc.line(48, H - 52, W - 48, H - 52);
 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(90, 82, 70);
+      doc.text('AP World Bundle Builder: bundlebuilder.github.io', W / 2, H - 30, { align: 'center' });
+
       // EACH ASSIGNMENT
       for (let i = 0; i < assignments.length; i++) {
         const asgn = assignments[i];
@@ -1364,9 +1416,12 @@ canvas { display: none; }
       }
     }
 
-    // Upload images: 2-up layout (two 8.5:11 portraits side-by-side per slide)
+    // Skip empty assignments
+    if (renderedPages.length === 0) return;
+
+    // Upload/manual images: 2-up layout (two 8.5:11 portraits side-by-side per slide)
     // Webcam and gdoc: 1 per slide
-    const isUpload = asgn.source === 'upload';
+    const isUpload = asgn.source === 'upload' || asgn.source === 'manual';
 
     if (isUpload) {
       // Pair images: [img0, img1], [img2, img3], ...
@@ -1567,6 +1622,30 @@ canvas { display: none; }
     });
   }
 
+  const btnNewAssignment        = document.getElementById('btn-new-assignment');
+  const btnPreviewNewAssignment = document.getElementById('btn-preview-new-assignment');
+
+  function createEmptyAssignment() {
+    const asgn = { name: 'New Assignment', pages: [], source: 'manual' };
+    addAssignment(asgn);
+    // Focus the name input in the newly created queue item
+    const el = document.querySelector(`.queue-item[data-id="${asgn.id}"] .qi-name-input`);
+    if (el) { el.focus(); el.select(); }
+    return asgn;
+  }
+
+  btnNewAssignment.addEventListener('click', () => {
+    createEmptyAssignment();
+    showNotif('New assignment added — name it and drag pages in via Preview / Edit');
+  });
+
+  btnPreviewNewAssignment.addEventListener('click', () => {
+    const asgn = createEmptyAssignment();
+    asgn._expanded = [];
+    renderPreview();
+    showNotif('New assignment added');
+  });
+
   // ================================================================
   // PREVIEW MODAL
   // ================================================================
@@ -1608,6 +1687,10 @@ canvas { display: none; }
 
     // Build _expanded arrays with cached rendered dataUrls
     for (const asgn of assignments) {
+      if (asgn.pages.length === 0) {
+        if (!asgn._expanded) asgn._expanded = [];
+        continue;
+      }
       const expanded = [];
       for (const pg of asgn.pages) {
         if (pg.kind === 'image') {
@@ -1637,7 +1720,6 @@ canvas { display: none; }
 
     assignments.forEach((asgn, asgnIdx) => {
       const expanded = asgn._expanded || [];
-      if (expanded.length === 0) return;
 
       const section = document.createElement('div');
       section.className = 'preview-section';
@@ -1652,18 +1734,36 @@ canvas { display: none; }
       nameEl.textContent = asgn.name;
       const cntEl = document.createElement('span');
       cntEl.className = 'preview-section-count';
-      cntEl.textContent = `${expanded.length} pg`;
+      cntEl.textContent = expanded.length === 0 ? 'empty' : `${expanded.length} pg`;
       hdr.appendChild(numEl); hdr.appendChild(nameEl); hdr.appendChild(cntEl);
       section.appendChild(hdr);
 
-      const grid = document.createElement('div');
-      grid.className = 'preview-page-grid';
+      if (expanded.length === 0) {
+        // Drop zone for empty assignments
+        const dz = document.createElement('div');
+        dz.className = 'preview-empty-drop';
+        dz.textContent = 'Drag pages here';
+        dz.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          dz.classList.add('drag-over-empty');
+        });
+        dz.addEventListener('dragleave', () => dz.classList.remove('drag-over-empty'));
+        dz.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dz.classList.remove('drag-over-empty');
+          if (!previewDragSrc) return;
+          movePreviewPage(previewDragSrc.asgnId, previewDragSrc.pgIdx, asgn.id, 0);
+        });
+        section.appendChild(dz);
+      } else {
+        const grid = document.createElement('div');
+        grid.className = 'preview-page-grid';
+        expanded.forEach((ep, pgIdx) => {
+          grid.appendChild(buildPreviewCard(asgn, pgIdx, ep.dataUrl));
+        });
+        section.appendChild(grid);
+      }
 
-      expanded.forEach((ep, pgIdx) => {
-        grid.appendChild(buildPreviewCard(asgn, pgIdx, ep.dataUrl));
-      });
-
-      section.appendChild(grid);
       previewScroll.appendChild(section);
     });
   }
@@ -1752,6 +1852,7 @@ canvas { display: none; }
     const [moved] = srcAsgn._expanded.splice(srcPgIdx, 1);
     let insertAt = dstPgIdx;
     if (srcAsgnId === dstAsgnId && srcPgIdx < dstPgIdx) insertAt--;
+    insertAt = Math.max(0, insertAt);
     dstAsgn._expanded.splice(insertAt, 0, moved);
 
     if (srcAsgnId !== dstAsgnId) {
