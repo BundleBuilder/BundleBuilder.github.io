@@ -6,7 +6,7 @@
 <title>Bundle Builder</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0d0d'/%3E%3Crect x='6' y='7' width='13' height='16' rx='1.5' fill='none' stroke='%23c8a96e' stroke-width='1.5'/%3E%3Crect x='10' y='11' width='13' height='16' rx='1.5' fill='%231c1c1c' stroke='%23c8a96e' stroke-width='1.5'/%3E%3Crect x='14' y='15' width='13' height='16' rx='1.5' fill='%230d0d0d' stroke='%23c8a96e' stroke-width='1.5'/%3E%3Cline x1='17' y1='20' x2='24' y2='20' stroke='%23c8a96e' stroke-width='1.2' stroke-linecap='round'/%3E%3Cline x1='17' y1='23' x2='22' y2='23' stroke='%238a7048' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Code+Pro:wght@300;400;500&display=swap" rel="stylesheet">
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-XPXQ4TFRE8"></script>
+<script async src="https://www.googletagmanager.com//js?id=G-XPXQ4TFRE8"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
@@ -1391,9 +1391,22 @@ canvas { display: none; }
       const safeName = name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
       doc.save(`${safeName}_Bundle.pdf`);
       if (typeof gtag === 'function') {
+        const sourceBreakdown = assignments.reduce((acc, a) => {
+          acc[a.source] = (acc[a.source] || 0) + 1;
+          return acc;
+        }, {});
         gtag('event', 'bundle_generated', {
-          assignments_count: assignments.length,
-          total_pages: assignments.reduce((s, a) => s + a.pages.length, 0)
+          assignments_count:   assignments.length,
+          total_pages:         assignments.reduce((s, a) => s + a.pages.length, 0),
+          has_webcam:          assignments.some(a => a.source === 'webcam'),
+          user_id:safeName,
+          has_gdoc:            assignments.some(a => a.source === 'gdoc'),
+          has_upload:          assignments.some(a => a.source === 'upload' || a.source === 'manual'),
+          source_webcam_count: sourceBreakdown.webcam  || 0,
+          source_gdoc_count:   sourceBreakdown.gdoc    || 0,
+          source_upload_count: (sourceBreakdown.upload || 0) + (sourceBreakdown.manual || 0),
+          avg_pages_per_assignment: +(assignments.reduce((s, a) => s + a.pages.length, 0) / assignments.length).toFixed(1),
+          time_of_day_hour:    new Date().getHours(),
         });
       }
       setStatus('Bundle downloaded successfully.', 'success');
