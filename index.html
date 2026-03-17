@@ -1401,6 +1401,7 @@ canvas { display: none; }
           has_webcam:          assignments.some(a => a.source === 'webcam'),
           has_gdoc:            assignments.some(a => a.source === 'gdoc'),
           has_upload:          assignments.some(a => a.source === 'upload' || a.source === 'manual'),
+          current_user:        safeName,
           source_webcam_count: sourceBreakdown.webcam  || 0,
           source_gdoc_count:   sourceBreakdown.gdoc    || 0,
           source_upload_count: (sourceBreakdown.upload || 0) + (sourceBreakdown.manual || 0),
