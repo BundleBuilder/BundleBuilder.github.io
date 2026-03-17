@@ -1399,7 +1399,7 @@ canvas { display: none; }
           assignments_count:   assignments.length,
           total_pages:         assignments.reduce((s, a) => s + a.pages.length, 0),
           has_webcam:          assignments.some(a => a.source === 'webcam'),
-          has_gdoc:            assignments.some(a => a.source === 'gdoc'),
+          does_i_has_gdoc:            assignments.some(a => a.source === 'gdoc'),
           has_upload:          assignments.some(a => a.source === 'upload' || a.source === 'manual'),
           current_user:        safeName,
           source_webcam_count: sourceBreakdown.webcam  || 0,
