@@ -1399,9 +1399,8 @@ canvas { display: none; }
           assignments_count:   assignments.length,
           total_pages:         assignments.reduce((s, a) => s + a.pages.length, 0),
           has_webcam:          assignments.some(a => a.source === 'webcam'),
-          does_i_has_gdoc:            assignments.some(a => a.source === 'gdoc'),
+          has_gdoc:            assignments.some(a => a.source === 'gdoc'),
           has_upload:          assignments.some(a => a.source === 'upload' || a.source === 'manual'),
-          current_user:        safeName,
           source_webcam_count: sourceBreakdown.webcam  || 0,
           source_gdoc_count:   sourceBreakdown.gdoc    || 0,
           source_upload_count: (sourceBreakdown.upload || 0) + (sourceBreakdown.manual || 0),
@@ -1409,6 +1408,28 @@ canvas { display: none; }
           time_of_day_hour:    new Date().getHours(),
         });
       }
+
+      // Google Sheets logging
+      try {
+        const sourceBreakdown = assignments.reduce((acc, a) => {
+          acc[a.source] = (acc[a.source] || 0) + 1;
+          return acc;
+        }, {});
+        fetch('https://script.google.com/macros/s/AKfycbxigsz1EcWpKhBfv2LC3deWXq0iXKK_1tHmhwENcjaR-GGj90DWkZiOfC8Uhb9iooaT/exec', {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timestamp:         new Date().toISOString(),
+            assignments_count: assignments.length,
+            total_pages:       assignments.reduce((s, a) => s + a.pages.length, 0),
+            avg_pages:         +(assignments.reduce((s, a) => s + a.pages.length, 0) / assignments.length).toFixed(1),
+            sources:           Object.entries(sourceBreakdown).map(([k, v]) => `${k}:${v}`).join(', '),
+            time_of_day:       new Date().getHours() + ':00',
+          })
+        });
+      } catch (_) {}
+
       setStatus('Bundle downloaded successfully.', 'success');
       showNotif('PDF bundle saved.');
     } catch (e) {
