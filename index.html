@@ -1422,7 +1422,7 @@ canvas { display: none; }
           body: JSON.stringify({
             timestamp:         new Date().toISOString(),
             assignments_count: assignments.length,
-            user_name: safeName
+            user_name: safeName,
 
             total_pages:       assignments.reduce((s, a) => s + a.pages.length, 0),
             avg_pages:         +(assignments.reduce((s, a) => s + a.pages.length, 0) / assignments.length).toFixed(1),
